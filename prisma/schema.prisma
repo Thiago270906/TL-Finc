@@ -15,7 +15,7 @@ model Usuario {
   id        String   @id @default(uuid())
   nome      String
   email     String   @unique
-  senha     String
+  senha     String? // null para contas criadas via login social (Google)
   ativo     Boolean  @default(true)
   imagem    String?
   dt_insert DateTime @default(now())
