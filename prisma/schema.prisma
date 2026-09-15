@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// USUÁRIO — qualquer usuário autenticado tem acesso total ao financeiro
+// ==========================================
+
+model Usuario {
+  id        String   @id @default(uuid())
+  nome      String
+  email     String   @unique
+  senha     String
+  ativo     Boolean  @default(true)
+  imagem    String?
+  dt_insert DateTime @default(now())
+  dt_update DateTime @default(now()) @updatedAt
+
+  @@map("usuario")
+}
+
+// ==========================================
+// MÓDULO FINANCEIRO — financeiro único (sem multi-cliente)
+// ==========================================
+
+model PlanoContas {
+  id          String                 @id @default(uuid())
+  tipo        TipoLancamento
+  nome        String
+  ativo       Boolean                @default(true)
+  dt_insert   DateTime               @default(now())
+  dt_update   DateTime               @default(now()) @updatedAt
+
+  lancamentos LancamentoFinanceiro[]
+
+  @@map("plano_contas")
+}
+
+model LancamentoFinanceiro {
+  id                String                 @id @default(uuid())
+  tipo              TipoLancamento
+  descricao         String
+  beneficiario      String?
+  valor             Decimal                @db.Decimal(15, 2)
+  dt_vencimento     DateTime
+  dt_pagamento      DateTime?
+  numero_documento  String?
+  plano_contas_id   String
+  status            StatusLancamento       @default(PENDENTE)
+  recorrencia       Recorrencia            @default(NAO)
+  numero_parcelas   Int?
+  parcela_atual     Int?
+  grupo_parcela_id  String?
+  lancamento_pai_id String?
+  dt_insert         DateTime               @default(now())
+  dt_update         DateTime               @default(now()) @updatedAt
+
+  plano_contas      PlanoContas            @relation(fields: [plano_contas_id], references: [id])
+  lancamento_pai    LancamentoFinanceiro?  @relation("Parcelas", fields: [lancamento_pai_id], references: [id], onDelete: SetNull)
+  parcelas          LancamentoFinanceiro[] @relation("Parcelas")
+  anexos            AnexoFinanceiro[]
+  parciais          PagamentoParcial[]
+
+  @@index([status])
+  @@index([dt_vencimento])
+  @@index([plano_contas_id])
+  @@index([grupo_parcela_id])
+  @@index([lancamento_pai_id])
+  @@map("lancamento_financeiro")
+}
+
+model PagamentoParcial {
+  id            String               @id @default(uuid())
+  lancamento_id String
+  valor         Decimal              @db.Decimal(15, 2)
+  dt_pagamento  DateTime
+  observacao    String?
+  dt_insert     DateTime             @default(now())
+
+  lancamento    LancamentoFinanceiro @relation(fields: [lancamento_id], references: [id], onDelete: Cascade)
+
+  @@index([lancamento_id])
+  @@map("pagamento_parcial")
+}
+
+model AnexoFinanceiro {
+  id            String               @id @default(uuid())
+  lancamento_id String
+  nome          String
+  url           String
+  key           String
+  tamanho       Int
+  dt_upload     DateTime             @default(now())
+
+  lancamento    LancamentoFinanceiro @relation(fields: [lancamento_id], references: [id], onDelete: Cascade)
+
+  @@index([lancamento_id])
+  @@map("anexo_financeiro")
+}
+
+enum Recorrencia {
+  NAO
+  DIARIAMENTE
+  SEMANALMENTE
+  MENSALMENTE
+}
+
+enum TipoLancamento {
+  DESPESA
+  RECEITA
+}
+
+enum StatusLancamento {
+  PENDENTE
+  PAGO
+  CANCELADO
+}
