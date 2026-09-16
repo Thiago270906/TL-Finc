@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   title: "TL-Finc",
   description: "Controle financeiro pessoal",
   icons: {
-    icon: '/icon.svg',
+    icon: '/icon-tlfinc.png',
   }
 };
 
