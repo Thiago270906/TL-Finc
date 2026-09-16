@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import Topbar from '@/components/Topbar'
 import ModalConfiguracoes from '@/components/ModalConfiguracoes'
 import { signOut } from 'next-auth/react'
-import { Menu, Settings } from 'lucide-react'
+import { Menu, Settings, LogOut } from 'lucide-react'
 import Link from 'next/link'
 import type { Usuario } from '@/types'
 
@@ -84,7 +84,7 @@ export default function AuthenticatedLayout({ children, usuario }: Authenticated
                     <span className={`ml-3 transition-opacity duration-200 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>Configurações</span>
                  </button>
                  <button onClick={() => signOut({ callbackUrl: '/login' })} className={`w-full group flex items-center px-3 py-2 text-sm font-medium rounded-md hover:bg-red-500/10 text-gray-500 hover:text-red-400 whitespace-nowrap transition-colors ${!isSidebarOpen && 'justify-center'}`} title="Sair">
-                    <span className="text-lg">🚪</span>
+                    <LogOut size={18} className="flex-shrink-0" />
                     <span className={`ml-3 transition-opacity duration-200 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>Sair</span>
                  </button>
             </div>
