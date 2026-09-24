@@ -2,7 +2,8 @@
 
 import { useActionState, useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { Wallet, LogIn, UserPlus } from 'lucide-react'
+import Image from 'next/image'
+import { LogIn, UserPlus } from 'lucide-react'
 import { authenticate, registrar } from '@/app/actions'
 
 function IconeGoogle() {
@@ -27,10 +28,7 @@ export default function LoginPage() {
 
         {/* MARCA */}
         <div className="pt-8 pb-6 flex flex-col items-center gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/25">
-            <Wallet size={26} className="text-white" />
-          </div>
-          <span className="text-gray-900 font-bold text-lg tracking-wide">TL-Finc</span>
+          <Image src="/logo-tlfin.png" alt="TL-Finc" width={346} height={366} className="h-16 w-auto object-contain" priority />
         </div>
 
         {/* ABAS */}
