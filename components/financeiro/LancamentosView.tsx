@@ -390,105 +390,104 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
         </div>
       ) : (
         <div className="border border-border rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] overscroll-x-contain">
+            <table className="min-w-[720px] w-full text-sm">
               <thead className="bg-surface text-gray-400 text-xs uppercase">
                 <tr>
-                  <th className="text-left px-4 py-3">Descrição</th>
-                  {tipo === 'DESPESA' && <th className="text-left px-4 py-3">Beneficiário</th>}
-                  <th className="text-left px-4 py-3">Categoria</th>
-                  <th className="text-right px-4 py-3">Valor</th>
-                  <th className="text-right px-4 py-3">Parciais</th>
-                  <th className="text-right px-4 py-3">Restante</th>
-                  <th className="text-center px-4 py-3">Vencimento</th>
-                  <th className="text-center px-4 py-3">Pagamento</th>
-                  <th className="text-center px-4 py-3">Nº Doc.</th>
-                  {controleBancosAtivo && <th className="text-left px-4 py-3">Banco</th>}
-                  {controleBancosAtivo && <th className="text-right px-4 py-3">Saldo Anterior</th>}
-                  {controleBancosAtivo && <th className="text-right px-4 py-3">Saldo Atual</th>}
-                  <th className="text-center px-4 py-3">Status</th>
-                  <th className="px-4 py-3" />
+                  <th className="text-left px-3 py-2">Descrição</th>
+                  <th className="text-left px-3 py-2">Categoria</th>
+                  <th className="text-right px-3 py-2">Valor</th>
+                  <th className="text-right px-3 py-2">Restante</th>
+                  <th className="text-center px-3 py-2">Vencimento</th>
+                  {controleBancosAtivo && <th className="text-left px-3 py-2">Banco</th>}
+                  <th className="text-center px-3 py-2">Status</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {lancamentosFiltrados.map(l => (
-                  <tr
-                    key={l.id}
-                    onClick={() => { setEditando(l); setShowModal(true) }}
-                    className={`hover:bg-surface/50 transition-colors cursor-pointer ${isVencido(l) ? 'bg-red-500/5' : ''}`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-foreground">{l.descricao}</div>
-                      {l.numero_parcelas && l.numero_parcelas > 1 && (
-                        <div className="text-xs text-gray-500">{l.parcela_atual}/{l.numero_parcelas}x</div>
-                      )}
-                      {isVencido(l) && <div className="text-xs text-red-400">Vencido</div>}
-                    </td>
-                    {tipo === 'DESPESA' && (
-                      <td className="px-4 py-3 text-gray-400">{l.beneficiario ?? '—'}</td>
-                    )}
-                    <td className="px-4 py-3 text-gray-400">{l.plano_contas.nome}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${tipo === 'DESPESA' ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {formatarMoeda(Number(l.valor))}
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-400">
-                      {somaParciais(l) > 0 ? formatarMoeda(somaParciais(l)) : '—'}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-semibold ${tipo === 'DESPESA' ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {somaParciais(l) > 0 ? formatarMoeda(Math.max(0, Number(l.valor) - somaParciais(l))) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center text-gray-300">{formatarData(l.dt_vencimento)}</td>
-                    <td className="px-4 py-3 text-center text-gray-400">
-                      {l.dt_pagamento ? formatarData(l.dt_pagamento) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center text-gray-400">{l.numero_documento ?? '—'}</td>
-                    {controleBancosAtivo && <td className="px-4 py-3 text-gray-400">{l.banco?.nome ?? '—'}</td>}
-                    {controleBancosAtivo && (
-                      <td className="px-4 py-3 text-right text-gray-400">
-                        {l.saldo_banco_anterior != null ? formatarMoeda(l.saldo_banco_anterior) : '—'}
+                {lancamentosFiltrados.map(l => {
+                  const subInfo = [
+                    tipo === 'DESPESA' && l.beneficiario,
+                    l.numero_parcelas && l.numero_parcelas > 1 ? `${l.parcela_atual}/${l.numero_parcelas}x` : null,
+                    l.numero_documento ? `Doc ${l.numero_documento}` : null,
+                  ].filter(Boolean) as string[]
+                  const restante = somaParciais(l) > 0 ? Math.max(0, Number(l.valor) - somaParciais(l)) : null
+                  const corTipo = tipo === 'DESPESA' ? 'text-red-400' : 'text-emerald-400'
+
+                  return (
+                    <tr
+                      key={l.id}
+                      onClick={() => { setEditando(l); setShowModal(true) }}
+                      className={`hover:bg-surface/50 transition-colors cursor-pointer ${isVencido(l) ? 'bg-red-500/5' : ''}`}
+                    >
+                      <td className="px-3 py-2 max-w-[240px]">
+                        <div className="font-medium text-foreground truncate" title={l.descricao}>{l.descricao}</div>
+                        {subInfo.length > 0 && <div className="text-xs text-gray-500 truncate">{subInfo.join(' · ')}</div>}
+                        {isVencido(l) && <div className="text-xs text-red-400">Vencido</div>}
                       </td>
-                    )}
-                    {controleBancosAtivo && (
-                      <td className="px-4 py-3 text-right text-gray-300 font-medium">
-                        {l.saldo_banco_posterior != null ? formatarMoeda(l.saldo_banco_posterior) : '—'}
+                      <td className="px-3 py-2 text-gray-400 max-w-[140px] truncate" title={l.plano_contas.nome}>{l.plano_contas.nome}</td>
+                      <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${corTipo}`}>
+                        {formatarMoeda(Number(l.valor))}
                       </td>
-                    )}
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_COR[l.status]}`}>
-                        {STATUS_LABEL[l.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center gap-1 justify-end">
-                        {l.status === 'PENDENTE' && (
+                      <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${corTipo}`}>
+                        {restante != null ? (
                           <>
-                            <button
-                              onClick={() => { setModalPagar(l.id); setDtPagamento(new Date().toISOString().split('T')[0]) }}
-                              className="p-1.5 text-gray-400 hover:text-emerald-400 transition-colors"
-                              title={tipo === 'DESPESA' ? 'Registrar pagamento' : 'Registrar recebimento'}
-                            >
-                              <CheckCircle size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleCancelar(l.id)}
-                              className="p-1.5 text-gray-400 hover:text-yellow-400 transition-colors"
-                              title="Cancelar"
-                            >
-                              <XCircle size={16} />
-                            </button>
+                            {formatarMoeda(restante)}
+                            <div className="text-xs text-gray-500 font-normal">pago {formatarMoeda(somaParciais(l))}</div>
                           </>
-                        )}
-                        <button
-                          onClick={() => handleExcluir(l.id)}
-                          className="p-1.5 text-gray-400 hover:text-red-400 transition-colors"
-                          title="Excluir"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        ) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-center text-gray-300 whitespace-nowrap">
+                        {formatarData(l.dt_vencimento)}
+                        {l.dt_pagamento && <div className="text-xs text-gray-500">pago {formatarData(l.dt_pagamento)}</div>}
+                      </td>
+                      {controleBancosAtivo && (
+                        <td className="px-3 py-2 text-gray-400 max-w-[140px] truncate">
+                          {l.banco?.nome ?? '—'}
+                          {l.saldo_banco_anterior != null && l.saldo_banco_posterior != null && (
+                            <div className="text-xs text-gray-500 whitespace-nowrap">
+                              {formatarMoeda(l.saldo_banco_anterior)} → {formatarMoeda(l.saldo_banco_posterior)}
+                            </div>
+                          )}
+                        </td>
+                      )}
+                      <td className="px-3 py-2 text-center">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs border whitespace-nowrap ${STATUS_COR[l.status]}`}>
+                          {STATUS_LABEL[l.status]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1 justify-end">
+                          {l.status === 'PENDENTE' && (
+                            <>
+                              <button
+                                onClick={() => { setModalPagar(l.id); setDtPagamento(new Date().toISOString().split('T')[0]) }}
+                                className="p-1.5 text-gray-400 hover:text-emerald-400 transition-colors"
+                                title={tipo === 'DESPESA' ? 'Registrar pagamento' : 'Registrar recebimento'}
+                              >
+                                <CheckCircle size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleCancelar(l.id)}
+                                className="p-1.5 text-gray-400 hover:text-yellow-400 transition-colors"
+                                title="Cancelar"
+                              >
+                                <XCircle size={16} />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            onClick={() => handleExcluir(l.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-400 transition-colors"
+                            title="Excluir"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

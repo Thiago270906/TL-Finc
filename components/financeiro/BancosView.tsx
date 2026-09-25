@@ -227,7 +227,7 @@ function ModalExtratoBanco({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-surface border border-border rounded-xl w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto">
+      <div className="bg-surface border border-border rounded-xl w-full max-w-4xl shadow-2xl max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-bold">{banco.nome}</h2>
@@ -255,34 +255,34 @@ function ModalExtratoBanco({
             <p className="text-center text-gray-500 text-sm py-8">Nenhuma movimentação ainda.</p>
           ) : (
             <div className="border border-border rounded-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] overscroll-x-contain">
+                <table className="min-w-[640px] w-full text-sm">
                   <thead className="bg-background text-gray-400 text-xs uppercase">
                     <tr>
-                      <th className="text-left px-4 py-3">Data</th>
-                      <th className="text-left px-4 py-3">Descrição</th>
-                      <th className="text-right px-4 py-3">Valor</th>
-                      <th className="text-right px-4 py-3">Saldo Anterior</th>
-                      <th className="text-right px-4 py-3">Saldo Posterior</th>
+                      <th className="text-left px-3 py-2">Data</th>
+                      <th className="text-left px-3 py-2">Descrição</th>
+                      <th className="text-right px-3 py-2">Valor</th>
+                      <th className="text-right px-3 py-2">Saldo Anterior</th>
+                      <th className="text-right px-3 py-2">Saldo Posterior</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {movimentacoes.map(m => (
                       <tr key={m.id}>
-                        <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{formatarData(m.dt_movimento)}</td>
-                        <td className="px-4 py-3 text-foreground">
+                        <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{formatarData(m.dt_movimento)}</td>
+                        <td className="px-3 py-2 text-foreground max-w-[320px]">
                           <div className="flex items-center gap-2">
                             {m.tipo === 'ENTRADA' && <ArrowUpCircle size={14} className="text-emerald-400 flex-shrink-0" />}
                             {m.tipo === 'SAIDA' && <ArrowDownCircle size={14} className="text-red-400 flex-shrink-0" />}
                             {m.tipo === 'AJUSTE_INICIAL' && <CircleDot size={14} className="text-primary-text flex-shrink-0" />}
-                            {m.descricao}
+                            <span className="truncate" title={m.descricao}>{m.descricao}</span>
                           </div>
                         </td>
-                        <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${m.tipo === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
+                        <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${m.tipo === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
                           {m.tipo === 'SAIDA' ? '-' : '+'}{formatarMoeda(m.valor)}
                         </td>
-                        <td className="px-4 py-3 text-right text-gray-400 whitespace-nowrap">{formatarMoeda(m.saldo_anterior)}</td>
-                        <td className="px-4 py-3 text-right text-gray-300 font-medium whitespace-nowrap">{formatarMoeda(m.saldo_posterior)}</td>
+                        <td className="px-3 py-2 text-right text-gray-400 whitespace-nowrap">{formatarMoeda(m.saldo_anterior)}</td>
+                        <td className="px-3 py-2 text-right text-gray-300 font-medium whitespace-nowrap">{formatarMoeda(m.saldo_posterior)}</td>
                       </tr>
                     ))}
                   </tbody>
