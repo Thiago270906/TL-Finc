@@ -8,9 +8,10 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
 } from 'recharts'
+import { Landmark } from 'lucide-react'
 import ModalPreviewPdf from '@/components/ModalPreviewPdf'
 import { gerarPdfContaResumo, gerarPdfContaDetalhado } from '@/lib/pdf-balancete-conta'
-import type { Balancete, ContratoEncerrando } from '@/types'
+import type { Balancete, ContratoEncerrando, Banco } from '@/types'
 
 const COR_EXPORT = {
   fundo: '#18181b',
@@ -29,6 +30,7 @@ interface Props {
   balancete: Balancete | null
   dataInicio: string
   dataFim: string
+  bancos?: Banco[]
 }
 
 function formatarMoeda(valor: number) {
@@ -127,7 +129,7 @@ function SeletorMesBalancete({ value, onSelecionar }: { value: string; onSelecio
   )
 }
 
-export default function BalanceteView({ balancete, dataInicio, dataFim }: Props) {
+export default function BalanceteView({ balancete, dataInicio, dataFim, bancos = [] }: Props) {
   const router = useRouter()
   const [modo, setModo] = useState<'mes' | 'ano' | 'periodo'>('mes')
   const [anoSel, setAnoSel] = useState(new Date().getFullYear())
@@ -290,6 +292,31 @@ export default function BalanceteView({ balancete, dataInicio, dataFim }: Props)
         <CardResumo label="A Receber no período" valor={b.a_receber} cor="text-yellow-400" />
         <CardResumo label="A Pagar no período" valor={b.a_pagar} cor="text-orange-400" />
       </div>
+
+      {/* Saldo em Bancos */}
+      {bancos.length > 0 && (
+        <div className="bg-surface border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-300">Saldo em Bancos</h2>
+            <span className={`text-sm font-bold ${bancos.reduce((s, bc) => s + bc.saldo_atual, 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              Total: {formatarMoeda(bancos.reduce((s, bc) => s + bc.saldo_atual, 0))}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {bancos.map(bc => (
+              <div key={bc.id} className="bg-background border border-border rounded-lg p-3">
+                <div className="flex items-center gap-1.5 text-gray-400 mb-1">
+                  <Landmark size={12} />
+                  <p className="text-xs truncate">{bc.nome}</p>
+                </div>
+                <p className={`text-base font-bold ${bc.saldo_atual >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {formatarMoeda(bc.saldo_atual)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Gráfico */}
       {(b.dados_mensais.length > 0 || tipoGrafico === 'pizza') && (

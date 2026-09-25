@@ -62,8 +62,39 @@ export type LancamentoFinanceiro = {
   parcela_atual: number | null
   grupo_parcela_id: string | null
   lancamento_pai_id: string | null
+  banco_id: string | null
+  saldo_banco_anterior: number | null
+  saldo_banco_posterior: number | null
   dt_insert: Date | string
   dt_update: Date | string
+}
+
+// =============================================================================
+// MÓDULO BANCOS
+// =============================================================================
+
+export type Banco = {
+  id: string
+  nome: string
+  saldo_inicial: number
+  saldo_atual: number
+  ativo: boolean
+  dt_insert: Date | string
+  dt_update: Date | string
+}
+
+export type TipoMovimentacaoBanco = 'ENTRADA' | 'SAIDA' | 'AJUSTE_INICIAL'
+
+export type MovimentacaoBanco = {
+  id: string
+  banco_id: string
+  lancamento_id: string | null
+  tipo: TipoMovimentacaoBanco
+  descricao: string
+  valor: number
+  saldo_anterior: number
+  saldo_posterior: number
+  dt_movimento: Date | string
 }
 
 export type AnexoFinanceiro = {
@@ -90,6 +121,7 @@ export type LancamentoComRelacoes = LancamentoFinanceiro & {
   anexos: AnexoFinanceiro[]
   parciais: PagamentoParcial[]
   parcelas?: LancamentoFinanceiro[]
+  banco?: Banco | null
 }
 
 export type ItemBalanceteConta = {

@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { toast } from 'sonner'
-import { X, User, Palette, Sun, Moon, Check } from 'lucide-react'
-import { atualizarUsuario } from '@/app/actions'
+import { X, User, Palette, Sun, Moon, Check, Settings2, Landmark, Loader2 } from 'lucide-react'
+import { atualizarUsuario, getConfiguracaoSistema, toggleControleBancos } from '@/app/actions'
 import { CORES_SISTEMA, salvarAparencia, lerAparenciaSalva, type TemaFundo, type CorSistema } from '@/lib/theme'
 import type { Usuario } from '@/types'
 
@@ -14,7 +15,7 @@ interface Props {
 }
 
 export default function ModalConfiguracoes({ usuario, onClose }: Props) {
-  const [aba, setAba] = useState<'usuario' | 'aplicativo'>('usuario')
+  const [aba, setAba] = useState<'usuario' | 'aplicativo' | 'sistema'>('usuario')
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -29,10 +30,11 @@ export default function ModalConfiguracoes({ usuario, onClose }: Props) {
         <div className="flex px-5 pt-4 gap-2">
           <TabButton icon={<User size={15} />} label="Usuário" active={aba === 'usuario'} onClick={() => setAba('usuario')} />
           <TabButton icon={<Palette size={15} />} label="Aplicativo" active={aba === 'aplicativo'} onClick={() => setAba('aplicativo')} />
+          <TabButton icon={<Settings2 size={15} />} label="Sistema" active={aba === 'sistema'} onClick={() => setAba('sistema')} />
         </div>
 
         <div className="p-5">
-          {aba === 'usuario' ? <AbaUsuario usuario={usuario} onClose={onClose} /> : <AbaAplicativo />}
+          {aba === 'usuario' ? <AbaUsuario usuario={usuario} onClose={onClose} /> : aba === 'aplicativo' ? <AbaAplicativo /> : <AbaSistema />}
         </div>
       </div>
     </div>
@@ -214,6 +216,70 @@ function AbaAplicativo() {
 
       <p className="text-[11px] text-gray-500 pt-2 border-t border-border">
         A aparência é aplicada automaticamente e fica salva neste dispositivo.
+      </p>
+    </div>
+  )
+}
+
+function AbaSistema() {
+  const router = useRouter()
+  const [carregando, setCarregando] = useState(true)
+  const [ativo, setAtivo] = useState(false)
+  const [alternando, setAlternando] = useState(false)
+
+  useEffect(() => {
+    getConfiguracaoSistema().then(config => {
+      setAtivo(config.controle_bancos_ativo)
+      setCarregando(false)
+    })
+  }, [])
+
+  async function handleToggle() {
+    setAlternando(true)
+    const resultado = await toggleControleBancos()
+    setAlternando(false)
+    if (!resultado.success) { toast.error(resultado.error); return }
+    setAtivo(resultado.data.controle_bancos_ativo)
+    toast.success(resultado.data.controle_bancos_ativo ? 'Controle de Bancos ativado.' : 'Controle de Bancos desativado.')
+    router.refresh()
+  }
+
+  if (carregando) {
+    return (
+      <div className="flex items-center justify-center py-10 text-gray-500">
+        <Loader2 size={20} className="animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-background/40 p-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ativo ? 'bg-emerald-500/10 text-emerald-400' : 'bg-surface-highlight text-gray-400'}`}>
+            <Landmark size={17} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">Controle de Bancos</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Cadastre bancos com saldo, vincule lançamentos a eles e acompanhe o saldo atualizado automaticamente em Contas a Pagar/Receber e no Balancete.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleToggle}
+          disabled={alternando}
+          className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${ativo ? 'bg-emerald-600' : 'bg-surface-highlight border border-border'}`}
+          aria-label="Ativar controle de Bancos"
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${ativo ? 'translate-x-5' : 'translate-x-0'}`} />
+        </button>
+      </div>
+
+      <p className="text-[11px] text-gray-500 pt-2 border-t border-border">
+        {ativo
+          ? 'Um item "Bancos" apareceu no menu lateral. Desativar aqui só esconde o recurso — nada do que já foi cadastrado é apagado.'
+          : 'Desativado por padrão. Ativando, nada do que já existe hoje é alterado — o recurso só passa a aparecer nas telas.'}
       </p>
     </div>
   )

@@ -42,36 +42,88 @@ model PlanoContas {
 }
 
 model LancamentoFinanceiro {
-  id                String                 @id @default(uuid())
-  tipo              TipoLancamento
-  descricao         String
-  beneficiario      String?
-  valor             Decimal                @db.Decimal(15, 2)
-  dt_vencimento     DateTime
-  dt_pagamento      DateTime?
-  numero_documento  String?
-  plano_contas_id   String
-  status            StatusLancamento       @default(PENDENTE)
-  recorrencia       Recorrencia            @default(NAO)
-  numero_parcelas   Int?
-  parcela_atual     Int?
-  grupo_parcela_id  String?
-  lancamento_pai_id String?
-  dt_insert         DateTime               @default(now())
-  dt_update         DateTime               @default(now()) @updatedAt
+  id                     String                 @id @default(uuid())
+  tipo                   TipoLancamento
+  descricao              String
+  beneficiario           String?
+  valor                  Decimal                @db.Decimal(15, 2)
+  dt_vencimento          DateTime
+  dt_pagamento           DateTime?
+  numero_documento       String?
+  plano_contas_id        String
+  status                 StatusLancamento       @default(PENDENTE)
+  recorrencia            Recorrencia            @default(NAO)
+  numero_parcelas        Int?
+  parcela_atual          Int?
+  grupo_parcela_id       String?
+  lancamento_pai_id      String?
+  banco_id               String?
+  saldo_banco_anterior   Decimal?               @db.Decimal(15, 2)
+  saldo_banco_posterior  Decimal?               @db.Decimal(15, 2)
+  dt_insert              DateTime               @default(now())
+  dt_update              DateTime               @default(now()) @updatedAt
 
-  plano_contas      PlanoContas            @relation(fields: [plano_contas_id], references: [id])
-  lancamento_pai    LancamentoFinanceiro?  @relation("Parcelas", fields: [lancamento_pai_id], references: [id], onDelete: SetNull)
-  parcelas          LancamentoFinanceiro[] @relation("Parcelas")
-  anexos            AnexoFinanceiro[]
-  parciais          PagamentoParcial[]
+  plano_contas           PlanoContas            @relation(fields: [plano_contas_id], references: [id])
+  lancamento_pai         LancamentoFinanceiro?  @relation("Parcelas", fields: [lancamento_pai_id], references: [id], onDelete: SetNull)
+  parcelas                LancamentoFinanceiro[] @relation("Parcelas")
+  anexos                 AnexoFinanceiro[]
+  parciais               PagamentoParcial[]
+  banco                  Banco?                 @relation(fields: [banco_id], references: [id], onDelete: SetNull)
+  movimentacoes_banco     MovimentacaoBanco[]
 
   @@index([status])
   @@index([dt_vencimento])
   @@index([plano_contas_id])
   @@index([grupo_parcela_id])
   @@index([lancamento_pai_id])
+  @@index([banco_id])
   @@map("lancamento_financeiro")
+}
+
+// ==========================================
+// MÓDULO BANCOS
+// ==========================================
+
+model Banco {
+  id            String                 @id @default(uuid())
+  nome          String
+  saldo_inicial Decimal                @db.Decimal(15, 2)
+  saldo_atual   Decimal                @db.Decimal(15, 2)
+  ativo         Boolean                @default(true)
+  dt_insert     DateTime               @default(now())
+  dt_update     DateTime               @default(now()) @updatedAt
+
+  lancamentos   LancamentoFinanceiro[]
+  movimentacoes MovimentacaoBanco[]
+
+  @@map("banco")
+}
+
+model MovimentacaoBanco {
+  id              String                @id @default(uuid())
+  banco_id        String
+  lancamento_id   String?
+  tipo            TipoMovimentacaoBanco
+  descricao       String
+  valor           Decimal               @db.Decimal(15, 2)
+  saldo_anterior  Decimal               @db.Decimal(15, 2)
+  saldo_posterior Decimal               @db.Decimal(15, 2)
+  dt_movimento    DateTime              @default(now())
+
+  banco           Banco                 @relation(fields: [banco_id], references: [id], onDelete: Cascade)
+  lancamento      LancamentoFinanceiro? @relation(fields: [lancamento_id], references: [id], onDelete: SetNull)
+
+  @@index([banco_id])
+  @@index([lancamento_id])
+  @@map("movimentacao_banco")
+}
+
+model ConfiguracaoSistema {
+  id                    String   @id @default("global")
+  controle_bancos_ativo Boolean  @default(false)
+  dt_update             DateTime @default(now()) @updatedAt
+
+  @@map("configuracao_sistema")
 }
 
 model PagamentoParcial {
@@ -119,4 +171,10 @@ enum StatusLancamento {
   PENDENTE
   PAGO
   CANCELADO
+}
+
+enum TipoMovimentacaoBanco {
+  ENTRADA
+  SAIDA
+  AJUSTE_INICIAL
 }

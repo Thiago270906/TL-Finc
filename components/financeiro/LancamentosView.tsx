@@ -7,12 +7,14 @@ import { pagarLancamento, cancelarLancamento, excluirLancamento, excluirEAvancar
 import ModalLancamento from '@/components/financeiro/ModalLancamento'
 import ModalPreviewPdf from '@/components/ModalPreviewPdf'
 import { gerarPdfLancamentos } from '@/lib/pdf-lancamentos'
-import type { LancamentoComRelacoes, PlanoContas, TipoLancamento, StatusLancamento } from '@/types'
+import type { LancamentoComRelacoes, PlanoContas, TipoLancamento, StatusLancamento, Banco } from '@/types'
 
 interface Props {
   lancamentos: LancamentoComRelacoes[]
   planoContas: PlanoContas[]
   tipo: TipoLancamento
+  bancos?: Banco[]
+  controleBancosAtivo?: boolean
 }
 
 const STATUS_LABEL: Record<StatusLancamento, string> = {
@@ -111,7 +113,7 @@ function formatarData(data: Date | string) {
 }
 
 
-export default function LancamentosView({ lancamentos: inicial, planoContas, tipo }: Props) {
+export default function LancamentosView({ lancamentos: inicial, planoContas, tipo, bancos = [], controleBancosAtivo = false }: Props) {
   const [lancamentos, setLancamentos] = useState(inicial)
   const [showModal, setShowModal] = useState(false)
   const [editando, setEditando] = useState<LancamentoComRelacoes | null>(null)
@@ -401,6 +403,9 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
                   <th className="text-center px-4 py-3">Vencimento</th>
                   <th className="text-center px-4 py-3">Pagamento</th>
                   <th className="text-center px-4 py-3">Nº Doc.</th>
+                  {controleBancosAtivo && <th className="text-left px-4 py-3">Banco</th>}
+                  {controleBancosAtivo && <th className="text-right px-4 py-3">Saldo Anterior</th>}
+                  {controleBancosAtivo && <th className="text-right px-4 py-3">Saldo Atual</th>}
                   <th className="text-center px-4 py-3">Status</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -437,6 +442,17 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
                       {l.dt_pagamento ? formatarData(l.dt_pagamento) : '—'}
                     </td>
                     <td className="px-4 py-3 text-center text-gray-400">{l.numero_documento ?? '—'}</td>
+                    {controleBancosAtivo && <td className="px-4 py-3 text-gray-400">{l.banco?.nome ?? '—'}</td>}
+                    {controleBancosAtivo && (
+                      <td className="px-4 py-3 text-right text-gray-400">
+                        {l.saldo_banco_anterior != null ? formatarMoeda(l.saldo_banco_anterior) : '—'}
+                      </td>
+                    )}
+                    {controleBancosAtivo && (
+                      <td className="px-4 py-3 text-right text-gray-300 font-medium">
+                        {l.saldo_banco_posterior != null ? formatarMoeda(l.saldo_banco_posterior) : '—'}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_COR[l.status]}`}>
                         {STATUS_LABEL[l.status]}
@@ -484,6 +500,8 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
         <ModalLancamento
           tipo={tipo}
           planoContas={planoContas}
+          bancos={bancos}
+          controleBancosAtivo={controleBancosAtivo}
           lancamento={editando ?? undefined}
           onClose={() => { setShowModal(false); setEditando(null) }}
           onSuccess={recarregarLancamentos}

@@ -16,12 +16,15 @@ const ITENS_FINANCEIRO = [
   { href: '/financeiro/plano-contas', icon: '🗂️', label: 'Plano de Contas' },
 ] as const
 
+const ITEM_BANCOS = { href: '/financeiro/bancos', icon: '🏦', label: 'Bancos' } as const
+
 interface AuthenticatedLayoutProps {
   children: React.ReactNode
   usuario: Usuario
+  controleBancosAtivo?: boolean
 }
 
-export default function AuthenticatedLayout({ children, usuario }: AuthenticatedLayoutProps) {
+export default function AuthenticatedLayout({ children, usuario, controleBancosAtivo }: AuthenticatedLayoutProps) {
   const pathname = usePathname()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [showConfiguracoes, setShowConfiguracoes] = useState(false)
@@ -29,6 +32,8 @@ export default function AuthenticatedLayout({ children, usuario }: Authenticated
   if (pathname?.startsWith('/login')) {
       return <main className="min-h-screen bg-gray-100 flex flex-col justify-center">{children}</main>
   }
+
+  const itensMenu = controleBancosAtivo ? [...ITENS_FINANCEIRO, ITEM_BANCOS] : ITENS_FINANCEIRO
 
   function fecharSidebarSeMobile() {
     if (typeof window !== 'undefined' && window.innerWidth < 1024) setIsSidebarOpen(false)
@@ -64,7 +69,7 @@ export default function AuthenticatedLayout({ children, usuario }: Authenticated
 
             <div className="flex-1 flex flex-col overflow-hidden pt-4">
                 <div className="p-2 space-y-1">
-                  {ITENS_FINANCEIRO.map(item => (
+                  {itensMenu.map(item => (
                       <SidebarLink
                           key={item.href}
                           href={item.href}

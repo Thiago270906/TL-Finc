@@ -6,11 +6,13 @@ import { toast } from 'sonner'
 import { criarLancamento, editarLancamento, salvarAnexoFinanceiro, excluirAnexoFinanceiro, registrarPagamentoParcial, excluirPagamentoParcial } from '@/app/actions'
 import { UploadButton } from '@/lib/uploadthing'
 import ListaAnexos from '@/components/ListaAnexos'
-import type { LancamentoComRelacoes, PlanoContas, TipoLancamento, AnexoFinanceiro, PagamentoParcial } from '@/types'
+import type { LancamentoComRelacoes, PlanoContas, TipoLancamento, AnexoFinanceiro, PagamentoParcial, Banco } from '@/types'
 
 interface Props {
   tipo: TipoLancamento
   planoContas: PlanoContas[]
+  bancos?: Banco[]
+  controleBancosAtivo?: boolean
   lancamento?: LancamentoComRelacoes
   onClose: () => void
   onSuccess: () => void
@@ -24,7 +26,7 @@ function parseCentavos(valor: number) {
   return Math.round(valor * 100)
 }
 
-export default function ModalLancamento({ tipo, planoContas, lancamento, onClose, onSuccess }: Props) {
+export default function ModalLancamento({ tipo, planoContas, bancos = [], controleBancosAtivo = false, lancamento, onClose, onSuccess }: Props) {
   const [loading, setLoading] = useState(false)
   const [aplicarATodos, setAplicarATodos] = useState(false)
   const [parcelas, setParcelas] = useState(lancamento?.numero_parcelas ?? 1)
@@ -123,6 +125,13 @@ export default function ModalLancamento({ tipo, planoContas, lancamento, onClose
 
   const labelTipo = tipo === 'DESPESA' ? 'Despesa' : 'Receita'
   const hoje = new Date().toISOString().split('T')[0]
+
+  // Garante que o banco já vinculado apareça na lista mesmo se tiver sido desativado depois.
+  const bancosDisponiveis = lancamento?.banco && !bancos.some(b => b.id === lancamento.banco!.id)
+    ? [...bancos, lancamento.banco]
+    : bancos
+  const bancoBloqueado = lancamento?.status === 'PAGO'
+  const mostrarCampoBanco = controleBancosAtivo && (bancosDisponiveis.length > 0 || bancoBloqueado)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -317,6 +326,28 @@ export default function ModalLancamento({ tipo, planoContas, lancamento, onClose
               </select>
             </div>
           </div>
+
+          {mostrarCampoBanco && (
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">
+                Banco {bancoBloqueado && <span className="text-gray-500 normal-case">(travado após o pagamento)</span>}
+              </label>
+              <select
+                name="banco_id"
+                defaultValue={lancamento?.banco_id ?? ''}
+                disabled={bancoBloqueado}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-hover disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <option value="">Nenhum</option>
+                {bancosDisponiveis.map(b => (
+                  <option key={b.id} value={b.id}>{b.nome}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Ao confirmar {tipo === 'DESPESA' ? 'o pagamento' : 'o recebimento'}, o saldo deste banco é atualizado automaticamente.
+              </p>
+            </div>
+          )}
 
           {!lancamento && (
             <div className="space-y-3">

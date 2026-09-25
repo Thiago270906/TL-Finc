@@ -10,6 +10,27 @@ import type { ActionResult } from '@/types'
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 
+// =============================================================================
+// MÓDULO BANCOS — helper interno de estorno de saldo
+// =============================================================================
+
+async function estornarSaldoBanco(
+  tx: import('@prisma/client').Prisma.TransactionClient,
+  lancamento: { id: string; tipo: string; valor: unknown; banco_id: string | null; status: string }
+) {
+  if (!lancamento.banco_id || lancamento.status !== 'PAGO') return
+
+  const banco = await tx.banco.findUnique({ where: { id: lancamento.banco_id } })
+  if (!banco) return
+
+  const atual = Number(banco.saldo_atual)
+  const delta = lancamento.tipo === 'RECEITA' ? -Number(lancamento.valor) : Number(lancamento.valor)
+  const novo = Math.round((atual + delta) * 100) / 100
+
+  await tx.banco.update({ where: { id: banco.id }, data: { saldo_atual: novo } })
+  await tx.movimentacaoBanco.deleteMany({ where: { lancamento_id: lancamento.id } })
+}
+
 export async function authenticate(
   prevState: string | undefined,
   formData: FormData,
@@ -224,6 +245,7 @@ export async function criarLancamento(formData: FormData): Promise<ActionResult<
     const plano_contas_id = formData.get('plano_contas_id') as string
     const recorrencia = (formData.get('recorrencia') as string || 'NAO') as import('@prisma/client').Recorrencia
     const numero_parcelas = parseInt(formData.get('numero_parcelas') as string) || 1
+    const banco_id = (formData.get('banco_id') as string) || null
 
     if (!descricao) return { success: false, error: 'Descrição é obrigatória.' }
     if (isNaN(valor) || valor <= 0) return { success: false, error: 'Valor inválido.' }
@@ -251,6 +273,7 @@ export async function criarLancamento(formData: FormData): Promise<ActionResult<
             numero_parcelas,
             parcela_atual: i,
             grupo_parcela_id: grupoParcela,
+            banco_id,
           }
         })
       }
@@ -265,6 +288,7 @@ export async function criarLancamento(formData: FormData): Promise<ActionResult<
           numero_documento,
           plano_contas_id,
           recorrencia,
+          banco_id,
         }
       })
     }
@@ -291,6 +315,7 @@ export async function editarLancamento(formData: FormData): Promise<ActionResult
     const dt_vencimento = new Date(formData.get('dt_vencimento') as string)
     const numero_documento = (formData.get('numero_documento') as string)?.trim() || null
     const plano_contas_id = formData.get('plano_contas_id') as string
+    const banco_id = (formData.get('banco_id') as string) || null
 
     if (!descricao) return { success: false, error: 'Descrição é obrigatória.' }
     if (isNaN(valor) || valor <= 0) return { success: false, error: 'Valor inválido.' }
@@ -298,9 +323,16 @@ export async function editarLancamento(formData: FormData): Promise<ActionResult
     const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
 
+    // O vínculo com banco só pode mudar antes de o lançamento ser pago —
+    // depois disso o saldo já foi sincronizado e alterar o vínculo dessincronizaria o extrato.
+    const podeAlterarBanco = lancamento.status !== 'PAGO'
+
     await prisma.lancamentoFinanceiro.update({
       where: { id },
-      data: { descricao, beneficiario, valor, dt_vencimento, numero_documento, plano_contas_id }
+      data: {
+        descricao, beneficiario, valor, dt_vencimento, numero_documento, plano_contas_id,
+        ...(podeAlterarBanco ? { banco_id } : {}),
+      }
     })
 
     const aplicarATodos = formData.get('aplicar_a_todos') === 'true'
@@ -309,6 +341,13 @@ export async function editarLancamento(formData: FormData): Promise<ActionResult
         where: { grupo_parcela_id: lancamento.grupo_parcela_id, id: { not: id } },
         data: { descricao, beneficiario, valor, numero_documento, plano_contas_id },
       })
+      // O banco só é propagado às parcelas-irmãs que ainda não foram pagas (mesma regra do individual).
+      if (podeAlterarBanco) {
+        await prisma.lancamentoFinanceiro.updateMany({
+          where: { grupo_parcela_id: lancamento.grupo_parcela_id, id: { not: id }, status: { not: 'PAGO' } },
+          data: { banco_id },
+        })
+      }
     }
 
     revalidatePath('/financeiro/contas-a-pagar')
@@ -325,17 +364,23 @@ export async function excluirGrupoParcelas(grupo_parcela_id: string): Promise<Ac
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const ids = await prisma.lancamentoFinanceiro.findMany({
+    const lancamentos = await prisma.lancamentoFinanceiro.findMany({
       where: { grupo_parcela_id },
-      select: { id: true },
     })
-    const idsArr = ids.map(l => l.id)
-    await prisma.anexoFinanceiro.deleteMany({ where: { lancamento_id: { in: idsArr } } })
-    await prisma.lancamentoFinanceiro.deleteMany({ where: { id: { in: idsArr } } })
+    const idsArr = lancamentos.map(l => l.id)
+
+    await prisma.$transaction(async (tx) => {
+      for (const l of lancamentos) {
+        await estornarSaldoBanco(tx, l)
+      }
+      await tx.anexoFinanceiro.deleteMany({ where: { lancamento_id: { in: idsArr } } })
+      await tx.lancamentoFinanceiro.deleteMany({ where: { id: { in: idsArr } } })
+    })
 
     revalidatePath('/financeiro/contas-a-pagar')
     revalidatePath('/financeiro/contas-a-receber')
     revalidatePath('/financeiro/balancete')
+    revalidatePath('/financeiro/bancos')
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Erro ao excluir grupo de parcelas.' }
@@ -385,45 +430,75 @@ export async function pagarLancamento(id: string, dt_pagamento: string): Promise
     const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
 
-    await prisma.lancamentoFinanceiro.update({
-      where: { id },
-      data: { status: 'PAGO', dt_pagamento: new Date(dt_pagamento) }
-    })
+    await prisma.$transaction(async (tx) => {
+      await tx.lancamentoFinanceiro.update({
+        where: { id },
+        data: { status: 'PAGO', dt_pagamento: new Date(dt_pagamento) }
+      })
 
-    if (lancamento.recorrencia !== 'NAO') {
-      const baseDate = new Date(lancamento.dt_vencimento)
-      let proxData: Date
+      if (lancamento.banco_id) {
+        const banco = await tx.banco.findUnique({ where: { id: lancamento.banco_id } })
+        if (banco) {
+          const atual = Number(banco.saldo_atual)
+          const delta = lancamento.tipo === 'RECEITA' ? Number(lancamento.valor) : -Number(lancamento.valor)
+          const novo = Math.round((atual + delta) * 100) / 100
 
-      if (lancamento.recorrencia === 'DIARIAMENTE') {
-        proxData = new Date(baseDate)
-        proxData.setDate(proxData.getDate() + 1)
-      } else if (lancamento.recorrencia === 'SEMANALMENTE') {
-        proxData = new Date(baseDate)
-        proxData.setDate(proxData.getDate() + 7)
-      } else {
-        proxData = new Date(baseDate)
-        proxData.setMonth(proxData.getMonth() + 1)
+          await tx.banco.update({ where: { id: banco.id }, data: { saldo_atual: novo } })
+          await tx.lancamentoFinanceiro.update({
+            where: { id },
+            data: { saldo_banco_anterior: atual, saldo_banco_posterior: novo },
+          })
+          await tx.movimentacaoBanco.create({
+            data: {
+              banco_id: banco.id,
+              lancamento_id: id,
+              tipo: lancamento.tipo === 'RECEITA' ? 'ENTRADA' : 'SAIDA',
+              descricao: lancamento.descricao,
+              valor: Number(lancamento.valor),
+              saldo_anterior: atual,
+              saldo_posterior: novo,
+            },
+          })
+        }
       }
 
-      await prisma.lancamentoFinanceiro.create({
-        data: {
-          tipo: lancamento.tipo,
-          descricao: lancamento.descricao,
-          beneficiario: lancamento.beneficiario,
-          valor: lancamento.valor,
-          dt_vencimento: proxData,
-          numero_documento: lancamento.numero_documento,
-          plano_contas_id: lancamento.plano_contas_id,
-          recorrencia: lancamento.recorrencia,
-          status: 'PENDENTE',
-          lancamento_pai_id: id,
+      if (lancamento.recorrencia !== 'NAO') {
+        const baseDate = new Date(lancamento.dt_vencimento)
+        let proxData: Date
+
+        if (lancamento.recorrencia === 'DIARIAMENTE') {
+          proxData = new Date(baseDate)
+          proxData.setDate(proxData.getDate() + 1)
+        } else if (lancamento.recorrencia === 'SEMANALMENTE') {
+          proxData = new Date(baseDate)
+          proxData.setDate(proxData.getDate() + 7)
+        } else {
+          proxData = new Date(baseDate)
+          proxData.setMonth(proxData.getMonth() + 1)
         }
-      })
-    }
+
+        await tx.lancamentoFinanceiro.create({
+          data: {
+            tipo: lancamento.tipo,
+            descricao: lancamento.descricao,
+            beneficiario: lancamento.beneficiario,
+            valor: lancamento.valor,
+            dt_vencimento: proxData,
+            numero_documento: lancamento.numero_documento,
+            plano_contas_id: lancamento.plano_contas_id,
+            recorrencia: lancamento.recorrencia,
+            status: 'PENDENTE',
+            lancamento_pai_id: id,
+            banco_id: lancamento.banco_id,
+          }
+        })
+      }
+    })
 
     revalidatePath('/financeiro/contas-a-pagar')
     revalidatePath('/financeiro/contas-a-receber')
     revalidatePath('/financeiro/balancete')
+    revalidatePath('/financeiro/bancos')
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Erro ao registrar pagamento.' }
@@ -558,26 +633,32 @@ export async function excluirEAvancarRecorrencia(id: string): Promise<ActionResu
       proxData = new Date(baseDate); proxData.setMonth(proxData.getMonth() + 1)
     }
 
-    await prisma.anexoFinanceiro.deleteMany({ where: { lancamento_id: id } })
-    await prisma.lancamentoFinanceiro.delete({ where: { id } })
+    await prisma.$transaction(async (tx) => {
+      await estornarSaldoBanco(tx, lancamento)
+      await tx.anexoFinanceiro.deleteMany({ where: { lancamento_id: id } })
+      await tx.lancamentoFinanceiro.delete({ where: { id } })
 
-    await prisma.lancamentoFinanceiro.create({
-      data: {
-        tipo: lancamento.tipo,
-        descricao: lancamento.descricao,
-        beneficiario: lancamento.beneficiario,
-        valor: lancamento.valor,
-        dt_vencimento: proxData,
-        numero_documento: lancamento.numero_documento,
-        plano_contas_id: lancamento.plano_contas_id,
-        recorrencia: lancamento.recorrencia,
-        status: 'PENDENTE',
-        lancamento_pai_id: id,
-      }
+      await tx.lancamentoFinanceiro.create({
+        data: {
+          tipo: lancamento.tipo,
+          descricao: lancamento.descricao,
+          beneficiario: lancamento.beneficiario,
+          valor: lancamento.valor,
+          dt_vencimento: proxData,
+          numero_documento: lancamento.numero_documento,
+          plano_contas_id: lancamento.plano_contas_id,
+          recorrencia: lancamento.recorrencia,
+          status: 'PENDENTE',
+          lancamento_pai_id: id,
+          banco_id: lancamento.banco_id,
+        }
+      })
     })
 
     revalidatePath('/financeiro/contas-a-pagar')
     revalidatePath('/financeiro/contas-a-receber')
+    revalidatePath('/financeiro/balancete')
+    revalidatePath('/financeiro/bancos')
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Erro ao processar lançamento.' }
@@ -611,12 +692,16 @@ export async function excluirLancamento(id: string): Promise<ActionResult<undefi
     const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
 
-    await prisma.anexoFinanceiro.deleteMany({ where: { lancamento_id: id } })
-    await prisma.lancamentoFinanceiro.delete({ where: { id } })
+    await prisma.$transaction(async (tx) => {
+      await estornarSaldoBanco(tx, lancamento)
+      await tx.anexoFinanceiro.deleteMany({ where: { lancamento_id: id } })
+      await tx.lancamentoFinanceiro.delete({ where: { id } })
+    })
 
     revalidatePath('/financeiro/contas-a-pagar')
     revalidatePath('/financeiro/contas-a-receber')
     revalidatePath('/financeiro/balancete')
+    revalidatePath('/financeiro/bancos')
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Erro ao excluir lançamento.' }
@@ -699,12 +784,15 @@ export async function getLancamentosFinanceiros(
 
   const lancamentos = await prisma.lancamentoFinanceiro.findMany({
     where,
-    include: { plano_contas: true, anexos: true, parciais: { orderBy: { dt_pagamento: 'asc' } } },
+    include: { plano_contas: true, anexos: true, banco: true, parciais: { orderBy: { dt_pagamento: 'asc' } } },
     orderBy: { dt_vencimento: 'asc' },
   })
   return lancamentos.map(l => ({
     ...l,
     valor: Number(l.valor),
+    saldo_banco_anterior: l.saldo_banco_anterior != null ? Number(l.saldo_banco_anterior) : null,
+    saldo_banco_posterior: l.saldo_banco_posterior != null ? Number(l.saldo_banco_posterior) : null,
+    banco: l.banco ? { ...l.banco, saldo_inicial: Number(l.banco.saldo_inicial), saldo_atual: Number(l.banco.saldo_atual) } : null,
     parciais: l.parciais.map(p => ({ ...p, valor: Number(p.valor) })),
   }))
 }
@@ -875,4 +963,141 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
     dados_mensais,
     contratos_encerrando,
   }
+}
+
+// =============================================================================
+// MÓDULO SISTEMA — Configurações globais
+// =============================================================================
+
+export async function getConfiguracaoSistema(): Promise<{ controle_bancos_ativo: boolean }> {
+  const usuario = await getUsuarioLogado()
+  if (!usuario) return { controle_bancos_ativo: false }
+
+  const config = await prisma.configuracaoSistema.upsert({
+    where: { id: 'global' },
+    update: {},
+    create: { id: 'global' },
+  })
+  return { controle_bancos_ativo: config.controle_bancos_ativo }
+}
+
+export async function toggleControleBancos(): Promise<ActionResult<{ controle_bancos_ativo: boolean }>> {
+  try {
+    const usuario = await getUsuarioLogado()
+    if (!usuario) return { success: false, error: 'Não autenticado.' }
+
+    const atual = await prisma.configuracaoSistema.upsert({
+      where: { id: 'global' },
+      update: {},
+      create: { id: 'global' },
+    })
+    const atualizado = await prisma.configuracaoSistema.update({
+      where: { id: 'global' },
+      data: { controle_bancos_ativo: !atual.controle_bancos_ativo },
+    })
+
+    revalidatePath('/', 'layout')
+    return { success: true, data: { controle_bancos_ativo: atualizado.controle_bancos_ativo } }
+  } catch {
+    return { success: false, error: 'Erro ao alterar configuração.' }
+  }
+}
+
+// =============================================================================
+// MÓDULO BANCOS
+// =============================================================================
+
+export async function criarBanco(formData: FormData): Promise<ActionResult<import('@/types').Banco>> {
+  try {
+    const usuario = await getUsuarioLogado()
+    if (!usuario) return { success: false, error: 'Não autenticado.' }
+
+    const nome = (formData.get('nome') as string)?.trim()
+    const saldoStr = formData.get('saldo_inicial') as string
+    const saldo_inicial = parseFloat(saldoStr.replace(',', '.'))
+
+    if (!nome) return { success: false, error: 'Nome é obrigatório.' }
+    if (isNaN(saldo_inicial)) return { success: false, error: 'Saldo inicial inválido.' }
+
+    const banco = await prisma.$transaction(async (tx) => {
+      const novoBanco = await tx.banco.create({
+        data: { nome, saldo_inicial, saldo_atual: saldo_inicial },
+      })
+      await tx.movimentacaoBanco.create({
+        data: {
+          banco_id: novoBanco.id,
+          tipo: 'AJUSTE_INICIAL',
+          descricao: 'Saldo inicial',
+          valor: saldo_inicial,
+          saldo_anterior: 0,
+          saldo_posterior: saldo_inicial,
+        },
+      })
+      return novoBanco
+    })
+
+    revalidatePath('/financeiro/bancos')
+    revalidatePath('/financeiro/balancete')
+    return {
+      success: true,
+      data: { ...banco, saldo_inicial: Number(banco.saldo_inicial), saldo_atual: Number(banco.saldo_atual) },
+    }
+  } catch {
+    return { success: false, error: 'Erro ao criar banco.' }
+  }
+}
+
+export async function toggleAtivoBanco(id: string): Promise<ActionResult<undefined>> {
+  try {
+    const usuario = await getUsuarioLogado()
+    if (!usuario) return { success: false, error: 'Não autenticado.' }
+
+    const banco = await prisma.banco.findFirst({ where: { id } })
+    if (!banco) return { success: false, error: 'Banco não encontrado.' }
+
+    await prisma.banco.update({ where: { id }, data: { ativo: !banco.ativo } })
+
+    revalidatePath('/financeiro/bancos')
+    revalidatePath('/financeiro/balancete')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Erro ao alterar status do banco.' }
+  }
+}
+
+export async function excluirBanco(id: string): Promise<ActionResult<undefined>> {
+  try {
+    const usuario = await getUsuarioLogado()
+    if (!usuario) return { success: false, error: 'Não autenticado.' }
+
+    const banco = await prisma.banco.findFirst({ where: { id } })
+    if (!banco) return { success: false, error: 'Banco não encontrado.' }
+
+    const emUso = await prisma.lancamentoFinanceiro.count({ where: { banco_id: id } })
+    if (emUso > 0) return { success: false, error: 'Este banco possui lançamentos vinculados e não pode ser excluído.' }
+
+    await prisma.banco.delete({ where: { id } })
+
+    revalidatePath('/financeiro/bancos')
+    revalidatePath('/financeiro/balancete')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Erro ao excluir banco.' }
+  }
+}
+
+export async function getExtratoBanco(bancoId: string) {
+  const usuario = await getUsuarioLogado()
+  if (!usuario) return []
+
+  const movimentacoes = await prisma.movimentacaoBanco.findMany({
+    where: { banco_id: bancoId },
+    orderBy: { dt_movimento: 'desc' },
+  })
+  return movimentacoes.map(m => ({
+    ...m,
+    valor: Number(m.valor),
+    saldo_anterior: Number(m.saldo_anterior),
+    saldo_posterior: Number(m.saldo_posterior),
+  }))
 }
