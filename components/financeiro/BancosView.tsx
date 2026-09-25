@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { Plus, X, Landmark, Power, ArrowDownCircle, ArrowUpCircle, CircleDot } from 'lucide-react'
+import { Plus, X, Landmark, Power, ArrowDownCircle, ArrowUpCircle, CircleDot, Upload } from 'lucide-react'
 import { criarBanco, toggleAtivoBanco, excluirBanco, getExtratoBanco } from '@/app/actions'
 import BotaoDeletar from '@/components/BotaoDeletar'
-import type { Banco, MovimentacaoBanco } from '@/types'
+import ModalImportarExtrato from '@/components/financeiro/ModalImportarExtrato'
+import type { Banco, MovimentacaoBanco, PlanoContas } from '@/types'
 
 interface Props {
   bancos: Banco[]
+  planoContas: PlanoContas[]
 }
 
 function formatarMoeda(valor: number) {
@@ -23,7 +25,7 @@ function formatarData(data: Date | string) {
   return new Date(data).toLocaleString('pt-BR')
 }
 
-export default function BancosView({ bancos: inicial }: Props) {
+export default function BancosView({ bancos: inicial, planoContas }: Props) {
   const [bancos, setBancos] = useState(inicial)
   const [showModalNovo, setShowModalNovo] = useState(false)
   const [bancoExtrato, setBancoExtrato] = useState<Banco | null>(null)
@@ -106,7 +108,15 @@ export default function BancosView({ bancos: inicial }: Props) {
       )}
 
       {bancoExtrato && (
-        <ModalExtratoBanco banco={bancoExtrato} onClose={() => setBancoExtrato(null)} />
+        <ModalExtratoBanco
+          banco={bancoExtrato}
+          planoContas={planoContas}
+          onClose={() => setBancoExtrato(null)}
+          onSaldoAtualizado={(id, saldo_atual) => {
+            setBancos(prev => prev.map(b => b.id === id ? { ...b, saldo_atual } : b))
+            setBancoExtrato(prev => prev && prev.id === id ? { ...prev, saldo_atual } : prev)
+          }}
+        />
       )}
     </div>
   )
@@ -191,9 +201,25 @@ function ModalNovoBanco({ onClose, onSuccess }: { onClose: () => void; onSuccess
   )
 }
 
-function ModalExtratoBanco({ banco, onClose }: { banco: Banco; onClose: () => void }) {
+function ModalExtratoBanco({
+  banco,
+  planoContas,
+  onClose,
+  onSaldoAtualizado,
+}: {
+  banco: Banco
+  planoContas: PlanoContas[]
+  onClose: () => void
+  onSaldoAtualizado: (bancoId: string, saldo_atual: number) => void
+}) {
   const [carregando, setCarregando] = useState(true)
   const [movimentacoes, setMovimentacoes] = useState<MovimentacaoBanco[]>([])
+  const [showImportar, setShowImportar] = useState(false)
+
+  function recarregarExtrato() {
+    setCarregando(true)
+    getExtratoBanco(banco.id).then(m => { setMovimentacoes(m as MovimentacaoBanco[]); setCarregando(false) })
+  }
 
   useEffect(() => {
     getExtratoBanco(banco.id).then(m => { setMovimentacoes(m as MovimentacaoBanco[]); setCarregando(false) })
@@ -209,9 +235,17 @@ function ModalExtratoBanco({ banco, onClose }: { banco: Banco; onClose: () => vo
               Saldo atual: {formatarMoeda(banco.saldo_atual)}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-foreground transition-colors">
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowImportar(true)}
+              className="flex items-center gap-1.5 bg-surface-highlight hover:bg-border text-foreground text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Upload size={14} /> Importar extrato
+            </button>
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-foreground transition-colors">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="p-5">
@@ -258,6 +292,19 @@ function ModalExtratoBanco({ banco, onClose }: { banco: Banco; onClose: () => vo
           )}
         </div>
       </div>
+
+      {showImportar && (
+        <ModalImportarExtrato
+          bancoId={banco.id}
+          bancoNome={banco.nome}
+          planoContas={planoContas}
+          onClose={() => setShowImportar(false)}
+          onImportado={(saldo_atual) => {
+            onSaldoAtualizado(banco.id, saldo_atual)
+            recarregarExtrato()
+          }}
+        />
+      )}
     </div>
   )
 }
