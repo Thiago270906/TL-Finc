@@ -256,6 +256,18 @@ export async function criarLancamento(formData: FormData): Promise<ActionResult<
     const conta = await prisma.planoContas.findFirst({ where: { id: plano_contas_id } })
     if (!conta) return { success: false, error: 'Categoria não encontrada.' }
 
+    // Freio contra duplo clique/reenvio: mesmo lançamento (mesma descrição, valor, categoria,
+    // vencimento e nº de parcelas) inserido há poucos segundos provavelmente é o mesmo envio.
+    const ha5Segundos = new Date(Date.now() - 5000)
+    const possivelDuplicata = await prisma.lancamentoFinanceiro.findFirst({
+      where: {
+        tipo, descricao, valor, dt_vencimento, plano_contas_id,
+        numero_parcelas: numero_parcelas > 1 ? numero_parcelas : null,
+        dt_insert: { gte: ha5Segundos },
+      },
+    })
+    if (possivelDuplicata) return { success: false, error: 'Esse lançamento parece ter sido enviado duas vezes — recarregue a página antes de tentar de novo.' }
+
     if (numero_parcelas > 1) {
       const grupoParcela = crypto.randomUUID()
 
@@ -372,11 +384,14 @@ export async function excluirGrupoParcelas(grupo_parcela_id: string): Promise<Ac
     const idsArr = lancamentos.map(l => l.id)
 
     await prisma.$transaction(async (tx) => {
+      await tx.anexoFinanceiro.deleteMany({ where: { lancamento_id: { in: idsArr } } })
       for (const l of lancamentos) {
         await estornarSaldoBanco(tx, l)
+        // delete (não deleteMany): se outra chamada concorrente já apagou essa linha,
+        // isso lança e desfaz a transação inteira, em vez de estornar o saldo em dobro
+        // silenciosamente (deleteMany não reclama quando não encontra nada pra apagar).
+        await tx.lancamentoFinanceiro.delete({ where: { id: l.id } })
       }
-      await tx.anexoFinanceiro.deleteMany({ where: { lancamento_id: { in: idsArr } } })
-      await tx.lancamentoFinanceiro.deleteMany({ where: { id: { in: idsArr } } })
     })
 
     revalidatePath('/financeiro/contas-a-pagar')
@@ -431,12 +446,17 @@ export async function pagarLancamento(id: string, dt_pagamento: string): Promise
 
     const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
+    if (lancamento.status === 'PAGO') return { success: false, error: 'Este lançamento já está pago.' }
 
     await prisma.$transaction(async (tx) => {
-      await tx.lancamentoFinanceiro.update({
-        where: { id },
+      // updateMany com status != PAGO como condição: se um clique duplo ou uma reconexão
+      // disparar essa action duas vezes ao mesmo tempo, só a primeira consegue mudar o
+      // status (a segunda vê count 0 e sai sem debitar/creditar o banco de novo).
+      const { count } = await tx.lancamentoFinanceiro.updateMany({
+        where: { id, status: { not: 'PAGO' } },
         data: { status: 'PAGO', dt_pagamento: new Date(dt_pagamento) }
       })
+      if (count === 0) return
 
       if (lancamento.banco_id) {
         const banco = await tx.banco.findUnique({ where: { id: lancamento.banco_id } })
@@ -522,69 +542,77 @@ export async function registrarPagamentoParcial(
     }
     if (!dt_pagamento) return { success: false, error: 'Data do parcial é obrigatória.' }
 
-    const lancamento = await prisma.lancamentoFinanceiro.findFirst({
-      where: { id: lancamentoId },
-      include: { parciais: true },
-    })
-    if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
-    if (lancamento.status === 'CANCELADO') return { success: false, error: 'Lançamento cancelado não aceita parciais.' }
-    if (lancamento.status === 'PAGO') return { success: false, error: 'Lançamento já está quitado.' }
+    await prisma.$transaction(async (tx) => {
+      // Trava a linha do lançamento até essa transação terminar — sem isso, dois
+      // registros de parcial concorrentes (duplo clique) leem o mesmo "já pago" e
+      // ambos passam da validação de valor, somando parciais além do valor total.
+      await tx.$queryRaw`SELECT id FROM lancamento_financeiro WHERE id = ${lancamentoId} FOR UPDATE`
 
-    const total = Number(lancamento.valor)
-    const jaPago = lancamento.parciais.reduce((s, p) => s + Number(p.valor), 0)
-    const restante = Math.round((total - jaPago) * 100) / 100
-    const valorParcial = Math.round(valor * 100) / 100
-
-    if (valorParcial > restante) {
-      return { success: false, error: `O parcial (R$ ${valorParcial.toFixed(2)}) ultrapassa o saldo restante (R$ ${restante.toFixed(2)}).` }
-    }
-
-    await prisma.pagamentoParcial.create({
-      data: {
-        lancamento_id: lancamentoId,
-        valor: valorParcial,
-        dt_pagamento: new Date(dt_pagamento),
-        observacao: observacao?.trim() || null,
-      },
-    })
-
-    const novoTotal = Math.round((jaPago + valorParcial) * 100) / 100
-    if (novoTotal >= total) {
-      await prisma.lancamentoFinanceiro.update({
+      const lancamento = await tx.lancamentoFinanceiro.findFirst({
         where: { id: lancamentoId },
-        data: { status: 'PAGO', dt_pagamento: new Date(dt_pagamento) },
+        include: { parciais: true },
+      })
+      if (!lancamento) throw new Error('Lançamento não encontrado.')
+      if (lancamento.status === 'CANCELADO') throw new Error('Lançamento cancelado não aceita parciais.')
+      if (lancamento.status === 'PAGO') throw new Error('Lançamento já está quitado.')
+
+      const total = Number(lancamento.valor)
+      const jaPago = lancamento.parciais.reduce((s, p) => s + Number(p.valor), 0)
+      const restante = Math.round((total - jaPago) * 100) / 100
+      const valorParcial = Math.round(valor * 100) / 100
+
+      if (valorParcial > restante) {
+        throw new Error(`O parcial (R$ ${valorParcial.toFixed(2)}) ultrapassa o saldo restante (R$ ${restante.toFixed(2)}).`)
+      }
+
+      await tx.pagamentoParcial.create({
+        data: {
+          lancamento_id: lancamentoId,
+          valor: valorParcial,
+          dt_pagamento: new Date(dt_pagamento),
+          observacao: observacao?.trim() || null,
+        },
       })
 
-      if (lancamento.recorrencia !== 'NAO') {
-        const baseDate = new Date(lancamento.dt_vencimento)
-        let proxData: Date
-        if (lancamento.recorrencia === 'DIARIAMENTE') { proxData = new Date(baseDate); proxData.setDate(proxData.getDate() + 1) }
-        else if (lancamento.recorrencia === 'SEMANALMENTE') { proxData = new Date(baseDate); proxData.setDate(proxData.getDate() + 7) }
-        else { proxData = new Date(baseDate); proxData.setMonth(proxData.getMonth() + 1) }
-
-        await prisma.lancamentoFinanceiro.create({
-          data: {
-            tipo: lancamento.tipo,
-            descricao: lancamento.descricao,
-            beneficiario: lancamento.beneficiario,
-            valor: lancamento.valor,
-            dt_vencimento: proxData,
-            numero_documento: lancamento.numero_documento,
-            plano_contas_id: lancamento.plano_contas_id,
-            recorrencia: lancamento.recorrencia,
-            status: 'PENDENTE',
-            lancamento_pai_id: lancamentoId,
-          }
+      const novoTotal = Math.round((jaPago + valorParcial) * 100) / 100
+      if (novoTotal >= total) {
+        await tx.lancamentoFinanceiro.update({
+          where: { id: lancamentoId },
+          data: { status: 'PAGO', dt_pagamento: new Date(dt_pagamento) },
         })
+
+        if (lancamento.recorrencia !== 'NAO') {
+          const baseDate = new Date(lancamento.dt_vencimento)
+          let proxData: Date
+          if (lancamento.recorrencia === 'DIARIAMENTE') { proxData = new Date(baseDate); proxData.setDate(proxData.getDate() + 1) }
+          else if (lancamento.recorrencia === 'SEMANALMENTE') { proxData = new Date(baseDate); proxData.setDate(proxData.getDate() + 7) }
+          else { proxData = new Date(baseDate); proxData.setMonth(proxData.getMonth() + 1) }
+
+          await tx.lancamentoFinanceiro.create({
+            data: {
+              tipo: lancamento.tipo,
+              descricao: lancamento.descricao,
+              beneficiario: lancamento.beneficiario,
+              valor: lancamento.valor,
+              dt_vencimento: proxData,
+              numero_documento: lancamento.numero_documento,
+              plano_contas_id: lancamento.plano_contas_id,
+              recorrencia: lancamento.recorrencia,
+              status: 'PENDENTE',
+              lancamento_pai_id: lancamentoId,
+            }
+          })
+        }
       }
-    }
+    })
 
     revalidatePath('/financeiro/contas-a-pagar')
     revalidatePath('/financeiro/contas-a-receber')
     revalidatePath('/financeiro/balancete')
     return { success: true, data: undefined }
-  } catch {
-    return { success: false, error: 'Erro ao registrar parcial.' }
+  } catch (erro) {
+    const mensagem = erro instanceof Error ? erro.message : 'Erro ao registrar parcial.'
+    return { success: false, error: mensagem }
   }
 }
 
@@ -1094,12 +1122,104 @@ export async function excluirBanco(id: string): Promise<ActionResult<undefined>>
   }
 }
 
+export async function transferirEntreContas(
+  formData: FormData
+): Promise<ActionResult<{ saldoOrigem: number; saldoDestino: number }>> {
+  try {
+    const usuario = await getUsuarioLogado()
+    if (!usuario) return { success: false, error: 'Não autenticado.' }
+
+    const bancoOrigemId = formData.get('banco_origem_id') as string
+    const bancoDestinoId = formData.get('banco_destino_id') as string
+    const valorStr = formData.get('valor') as string
+    const valor = parseFloat(valorStr.replace(',', '.'))
+    const descricaoUsuario = (formData.get('descricao') as string)?.trim() || ''
+    const dtMovimentoStr = formData.get('dt_movimento') as string
+    const dt_movimento = dtMovimentoStr ? new Date(`${dtMovimentoStr}T12:00:00`) : new Date()
+
+    if (!bancoOrigemId || !bancoDestinoId) return { success: false, error: 'Selecione os dois bancos.' }
+    if (bancoOrigemId === bancoDestinoId) return { success: false, error: 'Selecione bancos diferentes.' }
+    if (isNaN(valor) || valor <= 0) return { success: false, error: 'Valor inválido.' }
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      const origem = await tx.banco.findFirst({ where: { id: bancoOrigemId } })
+      const destino = await tx.banco.findFirst({ where: { id: bancoDestinoId } })
+      if (!origem || !destino) throw new Error('Banco não encontrado.')
+      if (!origem.ativo || !destino.ativo) throw new Error('Não é possível transferir com um banco inativo.')
+
+      const complemento = descricaoUsuario ? ` — ${descricaoUsuario}` : ''
+      const saldoOrigemAnterior = Number(origem.saldo_atual)
+      const saldoOrigemPosterior = Math.round((saldoOrigemAnterior - valor) * 100) / 100
+      const saldoDestinoAnterior = Number(destino.saldo_atual)
+      const saldoDestinoPosterior = Math.round((saldoDestinoAnterior + valor) * 100) / 100
+
+      await tx.banco.update({ where: { id: origem.id }, data: { saldo_atual: saldoOrigemPosterior } })
+      await tx.banco.update({ where: { id: destino.id }, data: { saldo_atual: saldoDestinoPosterior } })
+
+      // Sem lancamento_id de propósito: transferência entre contas não é conta a pagar/receber,
+      // só um movimento de saída/entrada nos extratos dos dois bancos envolvidos.
+      await tx.movimentacaoBanco.create({
+        data: {
+          banco_id: origem.id,
+          tipo: 'SAIDA',
+          descricao: `Transferência para ${destino.nome}${complemento}`,
+          valor,
+          saldo_anterior: saldoOrigemAnterior,
+          saldo_posterior: saldoOrigemPosterior,
+          dt_movimento,
+        },
+      })
+      await tx.movimentacaoBanco.create({
+        data: {
+          banco_id: destino.id,
+          tipo: 'ENTRADA',
+          descricao: `Transferência de ${origem.nome}${complemento}`,
+          valor,
+          saldo_anterior: saldoDestinoAnterior,
+          saldo_posterior: saldoDestinoPosterior,
+          dt_movimento,
+        },
+      })
+
+      return { saldoOrigem: saldoOrigemPosterior, saldoDestino: saldoDestinoPosterior }
+    })
+
+    revalidatePath('/financeiro/bancos')
+    revalidatePath('/financeiro/balancete')
+    return { success: true, data: resultado }
+  } catch (erro) {
+    console.error('Erro ao transferir entre contas:', erro)
+    const mensagem = erro instanceof Error ? erro.message : 'Erro ao realizar a transferência.'
+    return { success: false, error: mensagem }
+  }
+}
+
 export async function getExtratoBanco(bancoId: string) {
   const usuario = await getUsuarioLogado()
   if (!usuario) return []
 
   const movimentacoes = await prisma.movimentacaoBanco.findMany({
     where: { banco_id: bancoId },
+    orderBy: { dt_movimento: 'desc' },
+  })
+  return movimentacoes.map(m => ({
+    ...m,
+    valor: Number(m.valor),
+    saldo_anterior: Number(m.saldo_anterior),
+    saldo_posterior: Number(m.saldo_posterior),
+  }))
+}
+
+export async function getTransferencias() {
+  const usuario = await getUsuarioLogado()
+  if (!usuario) return []
+
+  // Transferências entre contas são as únicas MovimentacaoBanco sem lancamento_id
+  // que não são o ajuste de saldo inicial (esse é o marcador "de propósito" usado
+  // em transferirEntreContas, sem precisar de uma coluna nova no banco).
+  const movimentacoes = await prisma.movimentacaoBanco.findMany({
+    where: { lancamento_id: null, tipo: { not: 'AJUSTE_INICIAL' } },
+    include: { banco: { select: { nome: true } } },
     orderBy: { dt_movimento: 'desc' },
   })
   return movimentacoes.map(m => ({

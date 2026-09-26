@@ -2,15 +2,18 @@
 
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { Plus, X, Landmark, Power, ArrowDownCircle, ArrowUpCircle, CircleDot, Upload } from 'lucide-react'
-import { criarBanco, toggleAtivoBanco, excluirBanco, getExtratoBanco } from '@/app/actions'
+import { Plus, X, Landmark, Power, ArrowDownCircle, ArrowUpCircle, CircleDot, Upload, ArrowLeftRight } from 'lucide-react'
+import { criarBanco, toggleAtivoBanco, excluirBanco, getExtratoBanco, transferirEntreContas, getTransferencias } from '@/app/actions'
 import BotaoDeletar from '@/components/BotaoDeletar'
 import ModalImportarExtrato from '@/components/financeiro/ModalImportarExtrato'
 import type { Banco, MovimentacaoBanco, PlanoContas } from '@/types'
 
+type Transferencia = MovimentacaoBanco & { banco: { nome: string } }
+
 interface Props {
   bancos: Banco[]
   planoContas: PlanoContas[]
+  transferencias: Transferencia[]
 }
 
 function formatarMoeda(valor: number) {
@@ -25,9 +28,11 @@ function formatarData(data: Date | string) {
   return new Date(data).toLocaleString('pt-BR')
 }
 
-export default function BancosView({ bancos: inicial, planoContas }: Props) {
+export default function BancosView({ bancos: inicial, planoContas, transferencias: transferenciasIniciais }: Props) {
   const [bancos, setBancos] = useState(inicial)
+  const [transferencias, setTransferencias] = useState(transferenciasIniciais)
   const [showModalNovo, setShowModalNovo] = useState(false)
+  const [showModalTransferencia, setShowModalTransferencia] = useState(false)
   const [bancoExtrato, setBancoExtrato] = useState<Banco | null>(null)
 
   async function handleToggleAtivo(id: string) {
@@ -100,10 +105,64 @@ export default function BancosView({ bancos: inicial, planoContas }: Props) {
         </div>
       )}
 
+      {bancos.length > 1 && (
+        <div className="space-y-3">
+          <button
+            onClick={() => setShowModalTransferencia(true)}
+            className="flex items-center gap-2 bg-surface border border-border text-foreground text-sm font-medium px-4 py-2 rounded-lg hover:bg-surface-highlight transition-colors"
+          >
+            <ArrowLeftRight size={16} /> Transferência entre contas
+          </button>
+
+          {transferencias.length > 0 && (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-border bg-background/50">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Transferências entre contas</h2>
+              </div>
+              <div className="divide-y divide-border max-h-80 overflow-y-auto">
+                {transferencias.map(t => (
+                  <div key={t.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {t.tipo === 'ENTRADA'
+                        ? <ArrowUpCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        : <ArrowDownCircle size={14} className="text-red-400 flex-shrink-0" />}
+                      <div className="min-w-0">
+                        <p className="text-foreground truncate">{t.banco.nome} <span className="text-gray-500">— {t.descricao}</span></p>
+                        <p className="text-xs text-gray-500">{formatarData(t.dt_movimento)}</p>
+                      </div>
+                    </div>
+                    <span className={`font-semibold whitespace-nowrap flex-shrink-0 ${t.tipo === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {t.tipo === 'SAIDA' ? '-' : '+'}{formatarMoeda(t.valor)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {showModalNovo && (
         <ModalNovoBanco
           onClose={() => setShowModalNovo(false)}
           onSuccess={banco => { setBancos(prev => [...prev, banco].sort((a, b) => a.nome.localeCompare(b.nome))); setShowModalNovo(false) }}
+        />
+      )}
+
+      {showModalTransferencia && (
+        <ModalTransferencia
+          bancos={bancos}
+          onClose={() => setShowModalTransferencia(false)}
+          onSuccess={async (origemId, saldoOrigem, destinoId, saldoDestino) => {
+            setBancos(prev => prev.map(b => {
+              if (b.id === origemId) return { ...b, saldo_atual: saldoOrigem }
+              if (b.id === destinoId) return { ...b, saldo_atual: saldoDestino }
+              return b
+            }))
+            setShowModalTransferencia(false)
+            const atualizadas = await getTransferencias()
+            setTransferencias(atualizadas as Transferencia[])
+          }}
         />
       )}
 
@@ -193,6 +252,155 @@ function ModalNovoBanco({ onClose, onSuccess }: { onClose: () => void; onSuccess
             </button>
             <button type="submit" disabled={loading} className="flex-1 py-2.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm font-medium disabled:opacity-50 transition-colors">
               {loading ? 'Criando...' : 'Criar Banco'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ModalTransferencia({
+  bancos,
+  onClose,
+  onSuccess,
+}: {
+  bancos: Banco[]
+  onClose: () => void
+  onSuccess: (origemId: string, saldoOrigem: number, destinoId: string, saldoDestino: number) => void
+}) {
+  const bancosAtivos = bancos.filter(b => b.ativo)
+  const [loading, setLoading] = useState(false)
+  const [origemId, setOrigemId] = useState(bancosAtivos[0]?.id ?? '')
+  const [destinoId, setDestinoId] = useState(bancosAtivos.find(b => b.id !== bancosAtivos[0]?.id)?.id ?? '')
+  const [valorCentavos, setValorCentavos] = useState(0)
+  const [valorDisplay, setValorDisplay] = useState('')
+  const [descricao, setDescricao] = useState('')
+  const [data, setData] = useState(() => new Date().toISOString().split('T')[0])
+
+  function handleValorChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const apenasDigitos = e.target.value.replace(/\D/g, '')
+    const centavos = parseInt(apenasDigitos || '0', 10)
+    setValorCentavos(centavos)
+    setValorDisplay(centavos > 0 ? formatarMoedaCentavos(centavos) : '')
+  }
+
+  function handleOrigemChange(novoOrigemId: string) {
+    setOrigemId(novoOrigemId)
+    // "Para" não pode ficar igual a "De" — se o usuário trocar "De" para o banco que
+    // já estava selecionado em "Para", troca o "Para" pra outro automaticamente.
+    if (destinoId === novoOrigemId) {
+      const outro = bancosAtivos.find(b => b.id !== novoOrigemId)
+      setDestinoId(outro?.id ?? '')
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (origemId === destinoId) { toast.error('Selecione bancos diferentes.'); return }
+    if (valorCentavos <= 0) { toast.error('Informe o valor da transferência.'); return }
+
+    setLoading(true)
+    const formData = new FormData()
+    formData.set('banco_origem_id', origemId)
+    formData.set('banco_destino_id', destinoId)
+    formData.set('valor', (valorCentavos / 100).toFixed(2))
+    formData.set('descricao', descricao)
+    formData.set('dt_movimento', data)
+
+    const resultado = await transferirEntreContas(formData)
+    setLoading(false)
+    if (!resultado.success) { toast.error(resultado.error); return }
+
+    toast.success('Transferência realizada.')
+    onSuccess(origemId, resultado.data.saldoOrigem, destinoId, resultado.data.saldoDestino)
+  }
+
+  if (bancosAtivos.length < 2) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="bg-surface border border-border rounded-xl w-full max-w-sm shadow-2xl p-5 space-y-4">
+          <p className="text-sm text-gray-400">Você precisa de pelo menos 2 bancos ativos para transferir entre contas.</p>
+          <button onClick={onClose} className="w-full py-2.5 rounded-lg border border-border text-sm hover:bg-surface-highlight transition-colors">
+            Fechar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-surface border border-border rounded-xl w-full max-w-sm shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h2 className="text-lg font-bold">Transferência entre contas</h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-foreground transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">De *</label>
+            <select
+              value={origemId}
+              onChange={e => handleOrigemChange(e.target.value)}
+              required
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-hover"
+            >
+              {bancosAtivos.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Para *</label>
+            <select
+              value={destinoId}
+              onChange={e => setDestinoId(e.target.value)}
+              required
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-hover"
+            >
+              {bancosAtivos.filter(b => b.id !== origemId).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Valor *</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={valorDisplay}
+                onChange={handleValorChange}
+                placeholder="R$ 0,00"
+                required
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-hover"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Data *</label>
+              <input
+                type="date"
+                value={data}
+                onChange={e => setData(e.target.value)}
+                required
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-hover"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Observação</label>
+            <input
+              value={descricao}
+              onChange={e => setDescricao(e.target.value)}
+              placeholder="Opcional"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-hover"
+            />
+          </div>
+          <p className="text-xs text-gray-500">Não gera lançamento em contas a pagar/receber — só um débito e um crédito nos extratos dos bancos.</p>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-border text-sm hover:bg-surface-highlight transition-colors">
+              Cancelar
+            </button>
+            <button type="submit" disabled={loading} className="flex-1 py-2.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm font-medium disabled:opacity-50 transition-colors">
+              {loading ? 'Transferindo...' : 'Transferir'}
             </button>
           </div>
         </form>

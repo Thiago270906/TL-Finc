@@ -118,6 +118,7 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
   const [editando, setEditando] = useState<LancamentoComRelacoes | null>(null)
   const [modalPagar, setModalPagar] = useState<string | null>(null)
   const [dtPagamento, setDtPagamento] = useState(new Date().toISOString().split('T')[0])
+  const [pagando, setPagando] = useState(false)
   const [modalExcluirRecorrente, setModalExcluirRecorrente] = useState<string | null>(null)
   const [modalExcluirGrupo, setModalExcluirGrupo] = useState<LancamentoComRelacoes | null>(null)
   const [busca, setBusca] = useState('')
@@ -191,17 +192,24 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
     + lancamentos.filter(l => l.status === 'PENDENTE').reduce((s, l) => s + somaParciais(l), 0)
 
   async function handlePagar() {
-    if (!modalPagar) return
-    const isRecorrente = lancamentos.find(l => l.id === modalPagar)?.recorrencia !== 'NAO'
-    const resultado = await pagarLancamento(modalPagar, dtPagamento)
-    if (!resultado.success) { toast.error(resultado.error); return }
-    toast.success(isRecorrente ? 'Pago. Próximo lançamento criado.' : 'Lançamento marcado como pago.')
-    if (isRecorrente) {
-      await recarregarLancamentos()
-    } else {
-      setLancamentos(prev => prev.map(l => l.id === modalPagar ? { ...l, status: 'PAGO', dt_pagamento: dtPagamento } : l))
+    if (!modalPagar || pagando) return
+    setPagando(true)
+    try {
+      const isRecorrente = lancamentos.find(l => l.id === modalPagar)?.recorrencia !== 'NAO'
+      const resultado = await pagarLancamento(modalPagar, dtPagamento)
+      if (!resultado.success) { toast.error(resultado.error); return }
+      toast.success(isRecorrente ? 'Pago. Próximo lançamento criado.' : 'Lançamento marcado como pago.')
+      if (isRecorrente) {
+        await recarregarLancamentos()
+      } else {
+        setLancamentos(prev => prev.map(l => l.id === modalPagar ? { ...l, status: 'PAGO', dt_pagamento: dtPagamento } : l))
+      }
+      setModalPagar(null)
+    } catch {
+      toast.error('Erro ao confirmar pagamento.')
+    } finally {
+      setPagando(false)
     }
-    setModalPagar(null)
   }
 
   async function handleCancelar(id: string) {
@@ -614,8 +622,8 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
                 <button onClick={() => setModalPagar(null)} className="flex-1 py-2 rounded-lg border border-border text-sm hover:bg-surface-highlight transition-colors">
                   Cancelar
                 </button>
-                <button onClick={handlePagar} className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors">
-                  Confirmar
+                <button onClick={handlePagar} disabled={pagando} className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                  {pagando ? 'Confirmando...' : 'Confirmar'}
                 </button>
               </div>
             </div>
