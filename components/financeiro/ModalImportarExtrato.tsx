@@ -133,6 +133,7 @@ export default function ModalImportarExtrato({ bancoId, bancoNome, planoContas, 
                 {arquivo ? arquivo.name : 'Clique para selecionar o PDF do extrato'}
               </span>
               <span className="text-xs text-gray-500">Funciona com extratos de diferentes bancos.</span>
+              <span className="text-xs text-gray-500 max-w-xs">No celular, se o PDF estiver no Google Drive ou outro app de nuvem, baixe-o para o aparelho antes de selecionar — evita falha no envio.</span>
               <input
                 type="file"
                 accept="application/pdf,.pdf"
