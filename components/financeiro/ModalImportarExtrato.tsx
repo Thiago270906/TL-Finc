@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { X, Upload, FileText, AlertTriangle, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
-import { analisarExtratoPdf, confirmarImportacaoExtrato } from '@/app/actions'
-import type { PlanoContas } from '@/types'
+import { confirmarImportacaoExtrato } from '@/app/actions'
+import type { PlanoContas, ActionResult } from '@/types'
 import type { PreviaImportacaoExtrato, LinhaPreviaImportacao, LinhaConfirmacaoImportacao, AcaoLinhaImportacao } from '@/lib/extrato/tipos'
 
 interface Props {
@@ -15,8 +15,8 @@ interface Props {
   onImportado: (saldo_atual: number) => void
 }
 
-// Deve ficar abaixo do limite configurado em next.config.ts (experimental.serverActions.bodySizeLimit).
-const TAMANHO_MAXIMO_BYTES = 9 * 1024 * 1024
+// Limite de bom senso para o upload do extrato (a rota /api/extrato/analisar não tem um teto próprio de framework).
+const TAMANHO_MAXIMO_BYTES = 20 * 1024 * 1024
 
 type LinhaEditavel = LinhaPreviaImportacao & {
   acao: AcaoLinhaImportacao
@@ -49,9 +49,11 @@ export default function ModalImportarExtrato({ bancoId, bancoNome, planoContas, 
     setAnalisando(true)
     try {
       const formData = new FormData()
+      formData.set('bancoId', bancoId)
       formData.set('arquivo', arquivo)
 
-      const resultado = await analisarExtratoPdf(bancoId, formData)
+      const resposta = await fetch('/api/extrato/analisar', { method: 'POST', body: formData })
+      const resultado: ActionResult<PreviaImportacaoExtrato> = await resposta.json()
       if (!resultado.success) { toast.error(resultado.error); return }
 
       setPrevia(resultado.data)
