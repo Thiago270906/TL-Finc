@@ -40,21 +40,27 @@ export default function ModalImportarExtrato({ bancoId, bancoNome, planoContas, 
   async function handleAnalisar() {
     if (!arquivo) { toast.error('Selecione o arquivo PDF do extrato.'); return }
     setAnalisando(true)
-    const formData = new FormData()
-    formData.set('arquivo', arquivo)
+    try {
+      const formData = new FormData()
+      formData.set('arquivo', arquivo)
 
-    const resultado = await analisarExtratoPdf(bancoId, formData)
-    setAnalisando(false)
-    if (!resultado.success) { toast.error(resultado.error); return }
+      const resultado = await analisarExtratoPdf(bancoId, formData)
+      if (!resultado.success) { toast.error(resultado.error); return }
 
-    setPrevia(resultado.data)
-    setLinhas(resultado.data.linhas.map(l => ({
-      ...l,
-      acao: l.possivelDuplicata ? 'IGNORAR' : l.acaoSugerida,
-      planoContasId: l.planoContasSugeridoId,
-      lancamentoConciliadoId: l.lancamentoConciliadoId,
-    })))
-    setFase('revisao')
+      setPrevia(resultado.data)
+      setLinhas(resultado.data.linhas.map(l => ({
+        ...l,
+        acao: l.possivelDuplicata ? 'IGNORAR' : l.acaoSugerida,
+        planoContasId: l.planoContasSugeridoId,
+        lancamentoConciliadoId: l.lancamentoConciliadoId,
+      })))
+      setFase('revisao')
+    } catch (erro) {
+      console.error('Erro ao analisar extrato:', erro)
+      toast.error('Não foi possível analisar o extrato. Verifique sua conexão e tente novamente.')
+    } finally {
+      setAnalisando(false)
+    }
   }
 
   function atualizarLinha(chave: string, patch: Partial<LinhaEditavel>) {
@@ -69,26 +75,31 @@ export default function ModalImportarExtrato({ bancoId, bancoNome, planoContas, 
   async function handleConfirmar() {
     if (linhasPendentesSemCategoria) { toast.error('Selecione a categoria de todas as linhas marcadas para criar.'); return }
     setConfirmando(true)
+    try {
+      const payload: LinhaConfirmacaoImportacao[] = linhas.map(l => ({
+        chave: l.chave,
+        data: l.data,
+        descricao: l.descricao,
+        beneficiario: l.beneficiario,
+        valor: l.valor,
+        tipoMovimento: l.tipoMovimento,
+        acao: l.acao,
+        lancamentoConciliadoId: l.acao === 'CONCILIAR' ? l.lancamentoConciliadoId : null,
+        planoContasId: l.acao === 'CRIAR' ? l.planoContasId : null,
+      }))
 
-    const payload: LinhaConfirmacaoImportacao[] = linhas.map(l => ({
-      chave: l.chave,
-      data: l.data,
-      descricao: l.descricao,
-      beneficiario: l.beneficiario,
-      valor: l.valor,
-      tipoMovimento: l.tipoMovimento,
-      acao: l.acao,
-      lancamentoConciliadoId: l.acao === 'CONCILIAR' ? l.lancamentoConciliadoId : null,
-      planoContasId: l.acao === 'CRIAR' ? l.planoContasId : null,
-    }))
+      const resultado = await confirmarImportacaoExtrato(bancoId, payload)
+      if (!resultado.success) { toast.error(resultado.error); return }
 
-    const resultado = await confirmarImportacaoExtrato(bancoId, payload)
-    setConfirmando(false)
-    if (!resultado.success) { toast.error(resultado.error); return }
-
-    toast.success(`Importação concluída: ${resultado.data.criados} lançamento(s) criado(s), ${resultado.data.conciliados} conciliado(s).`)
-    onImportado(resultado.data.saldo_atual)
-    onClose()
+      toast.success(`Importação concluída: ${resultado.data.criados} lançamento(s) criado(s), ${resultado.data.conciliados} conciliado(s).`)
+      onImportado(resultado.data.saldo_atual)
+      onClose()
+    } catch (erro) {
+      console.error('Erro ao confirmar importação:', erro)
+      toast.error('Não foi possível concluir a importação. Verifique sua conexão e tente novamente.')
+    } finally {
+      setConfirmando(false)
+    }
   }
 
   return (
