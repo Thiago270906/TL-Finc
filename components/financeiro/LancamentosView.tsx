@@ -617,6 +617,7 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
         <ModalPreviewPdf
           pdfBlob={pdfBlob}
           onClose={() => setPdfBlob(null)}
+          nomeArquivo={`${tipo === 'DESPESA' ? 'contas-a-pagar' : 'contas-a-receber'}-${labelPeriodo.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}.pdf`}
         />
       )}
     </div>

@@ -505,7 +505,11 @@ export default function BalanceteView({ balancete, dataInicio, dataFim, bancos =
 
       {/* Preview do PDF geral */}
       {pdfBlobGeral && (
-        <ModalPreviewPdf pdfBlob={pdfBlobGeral} onClose={() => setPdfBlobGeral(null)} />
+        <ModalPreviewPdf
+          pdfBlob={pdfBlobGeral}
+          onClose={() => setPdfBlobGeral(null)}
+          nomeArquivo={`balancete-${dataInicio}-a-${dataFim}.pdf`}
+        />
       )}
     </div>
   )
@@ -719,7 +723,11 @@ function TabelaConta({
 
       {/* Preview do PDF gerado */}
       {pdfBlob && (
-        <ModalPreviewPdf pdfBlob={pdfBlob} onClose={() => setPdfBlob(null)} />
+        <ModalPreviewPdf
+          pdfBlob={pdfBlob}
+          onClose={() => setPdfBlob(null)}
+          nomeArquivo={`${titulo.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}.pdf`}
+        />
       )}
     </div>
   )
