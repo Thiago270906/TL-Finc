@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { Plus, CheckCircle, XCircle, Trash2, Search, ChevronDown, ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
+import { Plus, CheckCircle, XCircle, Trash2, Search, ChevronDown, ChevronLeft, ChevronRight, FileDown, Loader2 } from 'lucide-react'
 import { pagarLancamento, cancelarLancamento, excluirLancamento, excluirEAvancarRecorrencia, excluirGrupoParcelas, excluirParcelasAPartirDesta, getLancamentosFinanceiros } from '@/app/actions'
 import ModalLancamento from '@/components/financeiro/ModalLancamento'
 import ModalPreviewPdf from '@/components/ModalPreviewPdf'
@@ -133,16 +133,20 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null)
 
   const montado = useRef(false)
+  const [carregando, setCarregando] = useState(false)
 
   const recarregarLancamentos = useCallback(async () => {
+    // No modo Período, sem as duas datas escolhidas ainda não há um recorte válido —
+    // evita buscar TODOS os lançamentos (sem filtro de data nenhum) só por ter trocado de aba.
+    if (modoData === 'PERIODO' && (!filtroDataInicio || !filtroDataFim)) return
+
+    setCarregando(true)
     try {
       let dataInicio: string | undefined
       let dataFim: string | undefined
       if (modoData === 'PERIODO') {
-        if (filtroDataInicio && filtroDataFim) {
-          dataInicio = filtroDataInicio
-          dataFim = filtroDataFim
-        }
+        dataInicio = filtroDataInicio
+        dataFim = filtroDataFim
       } else if (filtroMes !== 'TODOS') {
         const [ano, mes] = filtroMes.split('-')
         dataInicio = `${ano}-${mes}-01`
@@ -158,6 +162,8 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
       setLancamentos(atualizados as never)
     } catch {
       toast.error('Erro ao carregar lançamentos.')
+    } finally {
+      setCarregando(false)
     }
   }, [tipo, modoData, filtroMes, filtroDataInicio, filtroDataFim, filtroStatus, filtroCategoria])
 
@@ -384,12 +390,17 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
       </div>
 
       {/* Tabela */}
+      {carregando && (
+        <div className="flex items-center gap-2 text-xs text-gray-400 -mt-1">
+          <Loader2 size={13} className="animate-spin" /> Atualizando...
+        </div>
+      )}
       {lancamentosFiltrados.length === 0 ? (
         <div className="text-center py-12 text-gray-500 text-sm border border-dashed border-border rounded-xl">
           Nenhum lançamento encontrado.
         </div>
       ) : (
-        <div className="border border-border rounded-xl overflow-hidden">
+        <div className={`border border-border rounded-xl overflow-hidden transition-opacity ${carregando ? 'opacity-50' : ''}`}>
           <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] overscroll-x-contain">
             <table className="min-w-[720px] w-full text-sm">
               <thead className="bg-surface text-gray-400 text-xs uppercase">
