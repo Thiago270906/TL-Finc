@@ -15,6 +15,9 @@ interface Props {
   onImportado: (saldo_atual: number) => void
 }
 
+// Deve ficar abaixo do limite configurado em next.config.ts (experimental.serverActions.bodySizeLimit).
+const TAMANHO_MAXIMO_BYTES = 9 * 1024 * 1024
+
 type LinhaEditavel = LinhaPreviaImportacao & {
   acao: AcaoLinhaImportacao
   planoContasId: string | null
@@ -39,6 +42,10 @@ export default function ModalImportarExtrato({ bancoId, bancoNome, planoContas, 
 
   async function handleAnalisar() {
     if (!arquivo) { toast.error('Selecione o arquivo PDF do extrato.'); return }
+    if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
+      toast.error(`Arquivo muito grande (${(arquivo.size / 1024 / 1024).toFixed(1)} MB). O limite é de ${TAMANHO_MAXIMO_BYTES / 1024 / 1024} MB.`)
+      return
+    }
     setAnalisando(true)
     try {
       const formData = new FormData()
@@ -57,7 +64,8 @@ export default function ModalImportarExtrato({ bancoId, bancoNome, planoContas, 
       setFase('revisao')
     } catch (erro) {
       console.error('Erro ao analisar extrato:', erro)
-      toast.error('Não foi possível analisar o extrato. Verifique sua conexão e tente novamente.')
+      const detalhe = erro instanceof Error ? erro.message : String(erro)
+      toast.error(`Não foi possível analisar o extrato. ${detalhe}`)
     } finally {
       setAnalisando(false)
     }
