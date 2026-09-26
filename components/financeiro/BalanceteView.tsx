@@ -9,7 +9,6 @@ import {
 } from 'recharts'
 import { Landmark } from 'lucide-react'
 import ModalPreviewPdf from '@/components/ModalPreviewPdf'
-import { gerarPdfContaResumo, gerarPdfContaDetalhado } from '@/lib/pdf-balancete-conta'
 import type { Balancete, ContratoEncerrando, Banco } from '@/types'
 
 interface Props {
@@ -391,12 +390,14 @@ function TabelaConta({
   const [mostrarEscolhaPdf, setMostrarEscolhaPdf] = useState(false)
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null)
 
-  function exportarResumida() {
+  async function exportarResumida() {
+    const { gerarPdfContaResumo } = await import('@/lib/pdf-balancete-conta')
     setPdfBlob(gerarPdfContaResumo({ titulo, itens, total, labelPeriodo, corDestaque: corPdf }))
     setMostrarEscolhaPdf(false)
   }
 
-  function exportarDetalhada() {
+  async function exportarDetalhada() {
+    const { gerarPdfContaDetalhado } = await import('@/lib/pdf-balancete-conta')
     setPdfBlob(gerarPdfContaDetalhado({ titulo, itens, total, labelPeriodo, corDestaque: corPdf, lancamentosPorConta }))
     setMostrarEscolhaPdf(false)
   }

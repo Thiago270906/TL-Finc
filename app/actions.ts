@@ -1,5 +1,6 @@
 'use server'
 
+import { cache } from 'react'
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import { signIn } from '@/auth'
@@ -806,7 +807,7 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
   const fim = new Date(dataFim)
   fim.setHours(23, 59, 59, 999)
 
-  const [noPeriodo, todosPagos, parciaisPendentes] = await Promise.all([
+  const [noPeriodo, todosPagosAgrupado, parciaisPendentes] = await Promise.all([
     prisma.lancamentoFinanceiro.findMany({
       where: {
         status: { not: 'CANCELADO' },
@@ -814,9 +815,13 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
       },
       include: { plano_contas: true, parciais: { select: { valor: true } } }
     }),
-    prisma.lancamentoFinanceiro.findMany({
+    // Somado no banco (groupBy) em vez de trazer toda a tabela de pagos pra somar em JS —
+    // essa consulta não é filtrada por período (é o saldo desde o início), então cresce
+    // com o tempo se cada lançamento pago virar uma linha transferida pela rede.
+    prisma.lancamentoFinanceiro.groupBy({
+      by: ['tipo'],
       where: { status: 'PAGO' },
-      select: { tipo: true, valor: true }
+      _sum: { valor: true },
     }),
     prisma.pagamentoParcial.findMany({
       where: { lancamento: { status: 'PENDENTE' } },
@@ -826,6 +831,7 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
 
   const toNumber = (v: unknown) => typeof v === 'object' && v !== null && 'toNumber' in v ? (v as { toNumber: () => number }).toNumber() : Number(v)
   const somaParciais = (l: { parciais?: { valor: unknown }[] }) => (l.parciais ?? []).reduce((s, p) => s + toNumber(p.valor), 0)
+  const somaPagosPorTipo = (tipo: 'RECEITA' | 'DESPESA') => toNumber(todosPagosAgrupado.find(g => g.tipo === tipo)?._sum.valor ?? 0)
 
   const receitas = noPeriodo.filter(l => l.tipo === 'RECEITA').reduce((s, l) => s + toNumber(l.valor), 0)
   const despesas = noPeriodo.filter(l => l.tipo === 'DESPESA').reduce((s, l) => s + toNumber(l.valor), 0)
@@ -834,8 +840,8 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
   const parciaisRealizadosReceita = parciaisPendentes.filter(p => p.lancamento.tipo === 'RECEITA').reduce((s, p) => s + toNumber(p.valor), 0)
   const parciaisRealizadosDespesa = parciaisPendentes.filter(p => p.lancamento.tipo === 'DESPESA').reduce((s, p) => s + toNumber(p.valor), 0)
 
-  const saldoReceitas = todosPagos.filter(l => l.tipo === 'RECEITA').reduce((s, l) => s + toNumber(l.valor), 0) + parciaisRealizadosReceita
-  const saldoDespesas = todosPagos.filter(l => l.tipo === 'DESPESA').reduce((s, l) => s + toNumber(l.valor), 0) + parciaisRealizadosDespesa
+  const saldoReceitas = somaPagosPorTipo('RECEITA') + parciaisRealizadosReceita
+  const saldoDespesas = somaPagosPorTipo('DESPESA') + parciaisRealizadosDespesa
   const saldo = saldoReceitas - saldoDespesas
 
   const a_receber = noPeriodo
@@ -970,17 +976,18 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
 // MÓDULO SISTEMA — Configurações globais
 // =============================================================================
 
-export async function getConfiguracaoSistema(): Promise<{ controle_bancos_ativo: boolean }> {
+// cache() deduplica dentro da mesma requisição — layout e página do financeiro chamam
+// essa função de forma independente, mas só precisam de uma consulta.
+export const getConfiguracaoSistema = cache(async (): Promise<{ controle_bancos_ativo: boolean }> => {
   const usuario = await getUsuarioLogado()
   if (!usuario) return { controle_bancos_ativo: false }
 
-  const config = await prisma.configuracaoSistema.upsert({
-    where: { id: 'global' },
-    update: {},
-    create: { id: 'global' },
-  })
+  // findUnique em vez de upsert: evita uma escrita no banco a cada carregamento de página
+  // quando a configuração (comum) já existe — só cria na primeira vez que o sistema roda.
+  const config = await prisma.configuracaoSistema.findUnique({ where: { id: 'global' } })
+    ?? await prisma.configuracaoSistema.create({ data: { id: 'global' } })
   return { controle_bancos_ativo: config.controle_bancos_ativo }
-}
+})
 
 export async function toggleControleBancos(): Promise<ActionResult<{ controle_bancos_ativo: boolean }>> {
   try {

@@ -6,7 +6,6 @@ import { Plus, CheckCircle, XCircle, Trash2, Search, ChevronDown, ChevronLeft, C
 import { pagarLancamento, cancelarLancamento, excluirLancamento, excluirEAvancarRecorrencia, excluirGrupoParcelas, excluirParcelasAPartirDesta, getLancamentosFinanceiros } from '@/app/actions'
 import ModalLancamento from '@/components/financeiro/ModalLancamento'
 import ModalPreviewPdf from '@/components/ModalPreviewPdf'
-import { gerarPdfLancamentos } from '@/lib/pdf-lancamentos'
 import type { LancamentoComRelacoes, PlanoContas, TipoLancamento, StatusLancamento, Banco } from '@/types'
 
 interface Props {
@@ -279,11 +278,12 @@ export default function LancamentosView({ lancamentos: inicial, planoContas, tip
       ? 'Todos os meses'
       : new Date(Number(filtroMes.split('-')[0]), Number(filtroMes.split('-')[1]) - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 
-  function handleExportarPdf() {
+  async function handleExportarPdf() {
     if (lancamentosFiltrados.length === 0) {
       toast.error('Não há lançamentos para exportar com os filtros atuais.')
       return
     }
+    const { gerarPdfLancamentos } = await import('@/lib/pdf-lancamentos')
     const blob = gerarPdfLancamentos({ lancamentos: lancamentosFiltrados, tipo, labelPeriodo })
     setPdfBlob(blob)
   }

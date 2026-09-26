@@ -12,9 +12,24 @@ export default async function ContasAReceberPage() {
 
   const config = await getConfiguracaoSistema()
 
+  // A tela abre com o mês atual selecionado — busca já só esse mês em vez de todo o
+  // histórico (que só cresce com o tempo). Trocar de mês/período dispara uma nova busca.
+  const agora = new Date()
+  const anoMes = agora.getFullYear()
+  const mesAtual = agora.getMonth() + 1
+  const dataInicioMes = `${anoMes}-${String(mesAtual).padStart(2, '0')}-01`
+  const ultimoDiaMes = new Date(anoMes, mesAtual, 0).getDate()
+  const dataFimMes = `${anoMes}-${String(mesAtual).padStart(2, '0')}-${String(ultimoDiaMes).padStart(2, '0')}`
+
   const [lancamentos, planoContas, bancos] = await Promise.all([
     prisma.lancamentoFinanceiro.findMany({
-      where: { tipo: 'RECEITA' },
+      where: {
+        tipo: 'RECEITA',
+        dt_vencimento: {
+          gte: new Date(`${dataInicioMes}T00:00:00.000Z`),
+          lte: new Date(`${dataFimMes}T23:59:59.999Z`),
+        },
+      },
       include: { plano_contas: true, anexos: true, banco: true, parciais: { orderBy: { dt_pagamento: 'asc' } } },
       orderBy: { dt_vencimento: 'asc' },
     }),
