@@ -1,9 +1,8 @@
 'use client'
 
-import { Fragment, useState, useRef, useEffect, type ReactNode } from 'react'
+import { Fragment, useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, ChevronDown, FileDown } from 'lucide-react'
-import jsPDF from 'jspdf'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
@@ -12,19 +11,6 @@ import { Landmark } from 'lucide-react'
 import ModalPreviewPdf from '@/components/ModalPreviewPdf'
 import { gerarPdfContaResumo, gerarPdfContaDetalhado } from '@/lib/pdf-balancete-conta'
 import type { Balancete, ContratoEncerrando, Banco } from '@/types'
-
-const COR_EXPORT = {
-  fundo: '#18181b',
-  superficie: '#27272a',
-  borda: '#3f3f46',
-  texto: '#f4f4f5',
-  textoMuted: '#9ca3af',
-  emerald: '#34d399',
-  red: '#f87171',
-  indigo: '#818cf8',
-  yellow: '#facc15',
-  orange: '#fb923c',
-}
 
 interface Props {
   balancete: Balancete | null
@@ -42,25 +28,6 @@ function CardResumo({ label, valor, cor }: { label: string; valor: number; cor: 
     <div className="bg-surface border border-border rounded-xl p-4">
       <p className="text-xs text-gray-500 uppercase tracking-wider">{label}</p>
       <p className={`text-xl font-bold mt-1 ${cor}`}>{formatarMoeda(valor)}</p>
-    </div>
-  )
-}
-
-/** Versão do card com cor via inline style (hex), usada só no bloco oculto de captura do PDF geral. */
-function CardExport({ label, valor, cor }: { label: string; valor: number; cor: string }) {
-  return (
-    <div style={{ backgroundColor: COR_EXPORT.superficie, border: `1px solid ${COR_EXPORT.borda}`, borderRadius: 10, padding: 10 }}>
-      <p style={{ fontSize: 9, color: COR_EXPORT.textoMuted, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{label}</p>
-      <p style={{ fontSize: 15, fontWeight: 700, color: cor, margin: '3px 0 0 0' }}>{formatarMoeda(valor)}</p>
-    </div>
-  )
-}
-
-function ChartBlockExport({ titulo, children }: { titulo: string; children: ReactNode }) {
-  return (
-    <div style={{ backgroundColor: COR_EXPORT.superficie, border: `1px solid ${COR_EXPORT.borda}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-      <p style={{ fontSize: 11, fontWeight: 600, color: COR_EXPORT.texto, margin: '0 0 8px 0' }}>{titulo}</p>
-      {children}
     </div>
   )
 }
@@ -137,10 +104,6 @@ export default function BalanceteView({ balancete, dataInicio, dataFim, bancos =
   const [periodoIni, setPeriodoIni] = useState(dataInicio)
   const [periodoFim, setPeriodoFim] = useState(dataFim)
   const [tipoGrafico, setTipoGrafico] = useState<'barra' | 'linha' | 'pizza'>('barra')
-  const [preparandoExportGeral, setPreparandoExportGeral] = useState(false)
-  const [gerandoPdfGeral, setGerandoPdfGeral] = useState(false)
-  const [pdfBlobGeral, setPdfBlobGeral] = useState<Blob | null>(null)
-  const exportGeralRef = useRef<HTMLDivElement>(null)
 
   function navegar(ini: string, fim: string) {
     router.push(`/financeiro/balancete?inicio=${ini}&fim=${fim}`)
@@ -158,83 +121,17 @@ export default function BalanceteView({ balancete, dataInicio, dataFim, bancos =
     navegar(`${mesAno}-01`, `${mesAno}-${String(ultimoDia).padStart(2, '0')}`)
   }
 
-  function handleExportarGeral() {
-    setGerandoPdfGeral(true)
-    setPreparandoExportGeral(true)
-  }
-
-  useEffect(() => {
-    if (!preparandoExportGeral) return
-    let cancelado = false
-    ;(async () => {
-      // espera o layout e o desenho dos gráficos (Recharts) antes de capturar
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-      await new Promise(r => setTimeout(r, 150))
-      if (cancelado || !exportGeralRef.current) return
-
-      const { default: html2canvas } = await import('html2canvas')
-      const canvas = await html2canvas(exportGeralRef.current, {
-        backgroundColor: COR_EXPORT.fundo,
-        scale: 2,
-      })
-      if (cancelado) return
-
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-      const pageWidth = doc.internal.pageSize.getWidth()
-      const pageHeight = doc.internal.pageSize.getHeight()
-      const margemX = 10
-      const margemTopoOutras = 10
-      const topoPrimeiraPagina = 30
-      const imgWidth = pageWidth - margemX * 2
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
-      const imgData = canvas.toDataURL('image/png')
-
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(16)
-      doc.setTextColor(20)
-      doc.text('Balancete', 14, 16)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(10)
-      doc.setTextColor(110)
-      const labelPeriodoEfeito = `${new Date(dataInicio + 'T12:00:00').toLocaleDateString('pt-BR')} até ${new Date(dataFim + 'T12:00:00').toLocaleDateString('pt-BR')}`
-      doc.text(`Período: ${labelPeriodoEfeito}`, 14, 22)
-
-      doc.addImage(imgData, 'PNG', margemX, topoPrimeiraPagina, imgWidth, imgHeight)
-      let restante = imgHeight - (pageHeight - topoPrimeiraPagina)
-
-      while (restante > 0) {
-        doc.addPage()
-        const mostrado = imgHeight - restante
-        const posicaoY = margemTopoOutras - mostrado
-        doc.addImage(imgData, 'PNG', margemX, posicaoY, imgWidth, imgHeight)
-        restante -= (pageHeight - margemTopoOutras)
-      }
-
-      setPdfBlobGeral(doc.output('blob'))
-      setPreparandoExportGeral(false)
-      setGerandoPdfGeral(false)
-    })()
-    return () => { cancelado = true }
-  }, [preparandoExportGeral, dataInicio, dataFim])
-
   if (!balancete) {
     return <p className="text-center text-gray-500 py-12">Erro ao carregar balancete.</p>
   }
 
   const b = balancete
   const labelPeriodo = `${new Date(dataInicio + 'T12:00:00').toLocaleDateString('pt-BR')} até ${new Date(dataFim + 'T12:00:00').toLocaleDateString('pt-BR')}`
-  const dadosPizzaExport = [
-    { name: 'Receitas', value: b.receitas, color: '#10b981' },
-    { name: 'Despesas', value: b.despesas, color: '#ef4444' },
-    ...(b.lucro > 0 ? [{ name: 'Lucro', value: b.lucro, color: '#6366f1' }] : []),
-  ].filter(d => d.value > 0)
-  const totalPizzaExport = dadosPizzaExport.reduce((s, d) => s + d.value, 0)
 
   return (
     <div className="space-y-6">
       {/* Filtro */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-lg border border-border overflow-hidden">
           {(['mes', 'ano', 'periodo'] as const).map(m => (
             <button key={m}
@@ -272,15 +169,6 @@ export default function BalanceteView({ balancete, dataInicio, dataFim, bancos =
             </button>
           </div>
         )}
-        </div>
-
-        <button
-          onClick={handleExportarGeral}
-          disabled={gerandoPdfGeral}
-          className="flex items-center gap-2 bg-surface border border-border text-foreground text-sm font-medium px-4 py-2 rounded-lg hover:bg-surface-highlight transition-colors disabled:opacity-50 flex-shrink-0"
-        >
-          <FileDown size={16} /> {gerandoPdfGeral ? 'Gerando PDF...' : 'Exportar PDF'}
-        </button>
       </div>
 
       {/* Cards de resumo */}
@@ -438,79 +326,6 @@ export default function BalanceteView({ balancete, dataInicio, dataFim, bancos =
         />
       </div>
 
-      {/* Bloco oculto — usado só para capturar o PDF geral (cards + 3 gráficos empilhados) */}
-      {preparandoExportGeral && (
-        <div
-          ref={exportGeralRef}
-          style={{ position: 'fixed', top: 0, left: '-10000px', width: 680, padding: 16, backgroundColor: COR_EXPORT.fundo }}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
-            <CardExport label="Receitas previstas" valor={b.receitas} cor={COR_EXPORT.emerald} />
-            <CardExport label="Despesas previstas" valor={b.despesas} cor={COR_EXPORT.red} />
-            <CardExport label={b.lucro >= 0 ? 'Lucro previsto' : 'Prejuízo previsto'} valor={Math.abs(b.lucro)} cor={b.lucro >= 0 ? COR_EXPORT.emerald : COR_EXPORT.red} />
-            <CardExport label={b.saldo >= 0 ? 'Saldo realizado' : 'Déficit realizado'} valor={Math.abs(b.saldo)} cor={b.saldo >= 0 ? COR_EXPORT.indigo : COR_EXPORT.red} />
-            <CardExport label="A Receber no período" valor={b.a_receber} cor={COR_EXPORT.yellow} />
-            <CardExport label="A Pagar no período" valor={b.a_pagar} cor={COR_EXPORT.orange} />
-          </div>
-
-          <ChartBlockExport titulo="Receitas × Despesas × Lucro por Mês — Barra">
-            <BarChart width={648} height={190} data={b.dados_mensais} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-              <XAxis dataKey="mes" tick={{ fontSize: 10, fill: COR_EXPORT.textoMuted }} />
-              <YAxis tick={{ fontSize: 9, fill: COR_EXPORT.textoMuted }} tickFormatter={v => `R$${(v / 1000).toFixed(1)}k`} domain={[0, 'auto']} />
-              <Legend wrapperStyle={{ fontSize: 10, color: COR_EXPORT.textoMuted }} />
-              <Bar dataKey="receitas" name="Receitas" fill="#10b981" radius={[3, 3, 0, 0]} isAnimationActive={false} />
-              <Bar dataKey="despesas" name="Despesas" fill="#ef4444" radius={[3, 3, 0, 0]} isAnimationActive={false} />
-              <Bar dataKey="lucro" name="Lucro" fill="#6366f1" radius={[3, 3, 0, 0]} isAnimationActive={false} />
-            </BarChart>
-          </ChartBlockExport>
-
-          <ChartBlockExport titulo="Receitas × Despesas × Lucro por Mês — Linha">
-            <LineChart width={648} height={190} data={b.dados_mensais} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-              <XAxis dataKey="mes" tick={{ fontSize: 10, fill: COR_EXPORT.textoMuted }} />
-              <YAxis tick={{ fontSize: 9, fill: COR_EXPORT.textoMuted }} tickFormatter={v => `R$${(v / 1000).toFixed(1)}k`} domain={[0, 'auto']} />
-              <Legend wrapperStyle={{ fontSize: 10, color: COR_EXPORT.textoMuted }} />
-              <Line type="monotone" dataKey="receitas" name="Receitas" stroke="#10b981" strokeWidth={2} dot={{ r: 3, fill: '#10b981' }} isAnimationActive={false} />
-              <Line type="monotone" dataKey="despesas" name="Despesas" stroke="#ef4444" strokeWidth={2} dot={{ r: 3, fill: '#ef4444' }} isAnimationActive={false} />
-              <Line type="monotone" dataKey="lucro" name="Lucro" stroke="#6366f1" strokeWidth={2} dot={{ r: 3, fill: '#6366f1' }} isAnimationActive={false} />
-            </LineChart>
-          </ChartBlockExport>
-
-          <ChartBlockExport titulo="Distribuição do Período — Pizza">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <PieChart width={340} height={170}>
-                <Pie data={dadosPizzaExport} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={65} innerRadius={32} isAnimationActive={false}>
-                  {dadosPizzaExport.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-              </PieChart>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                {dadosPizzaExport.map(d => (
-                  <div key={d.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: d.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, color: COR_EXPORT.texto }}>{d.name}</span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, fontWeight: 500, color: d.color }}>{formatarMoeda(d.value)}</div>
-                      <div style={{ fontSize: 9, color: COR_EXPORT.textoMuted }}>{totalPizzaExport > 0 ? ((d.value / totalPizzaExport) * 100).toFixed(1) : 0}%</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </ChartBlockExport>
-        </div>
-      )}
-
-      {/* Preview do PDF geral */}
-      {pdfBlobGeral && (
-        <ModalPreviewPdf
-          pdfBlob={pdfBlobGeral}
-          onClose={() => setPdfBlobGeral(null)}
-          nomeArquivo={`balancete-${dataInicio}-a-${dataFim}.pdf`}
-        />
-      )}
     </div>
   )
 }
