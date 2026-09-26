@@ -21,6 +21,12 @@ export interface Aparencia {
 
 export const APARENCIA_PADRAO: Aparencia = { tema: 'dark', cor: 'indigo' }
 
+/** Cor de fundo do header (--color-surface) em cada tema — usada na barra de título do app instalado (PWA). */
+const COR_SURFACE_POR_TEMA: Record<TemaFundo, string> = {
+  dark: '#27272a',
+  light: '#f4f4f5',
+}
+
 export function lerAparenciaSalva(): Aparencia {
   if (typeof window === 'undefined') return APARENCIA_PADRAO
   try {
@@ -40,6 +46,7 @@ export function aplicarAparencia(aparencia: Aparencia) {
   if (typeof document === 'undefined') return
   document.documentElement.setAttribute('data-theme', aparencia.tema)
   document.documentElement.setAttribute('data-accent', aparencia.cor)
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', COR_SURFACE_POR_TEMA[aparencia.tema])
 }
 
 export function salvarAparencia(aparencia: Aparencia) {
@@ -61,6 +68,9 @@ export const SCRIPT_BOOT_TEMA = `
     }
     document.documentElement.setAttribute('data-theme', tema);
     document.documentElement.setAttribute('data-accent', cor);
+    var corSurface = tema === 'light' ? '#f4f4f5' : '#27272a';
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', corSurface);
   } catch (e) {}
 })();
 `
