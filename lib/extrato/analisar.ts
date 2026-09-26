@@ -15,11 +15,14 @@ export async function analisarExtratoPdf(
     if (!banco) return { success: false, error: 'Banco não encontrado.' }
 
     if (!arquivo || arquivo.size === 0) return { success: false, error: 'Selecione um arquivo PDF.' }
-    if (arquivo.type !== 'application/pdf' && !arquivo.name.toLowerCase().endsWith('.pdf')) {
+
+    const buffer = Buffer.from(await arquivo.arrayBuffer())
+    // Valida pelo conteúdo (assinatura "%PDF-"), não por nome/MIME informados pelo navegador —
+    // em alguns fluxos de upload no Android esses metadados chegam incompletos ou incorretos.
+    if (!buffer.subarray(0, 1024).includes('%PDF-')) {
       return { success: false, error: 'Apenas arquivos PDF são suportados.' }
     }
 
-    const buffer = Buffer.from(await arquivo.arrayBuffer())
     const texto = await extrairTextoPdf(buffer)
     const { bancoDetectado, layoutGenerico, transacoes } = parsearExtratoPdf(texto)
 
