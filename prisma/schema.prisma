@@ -8,7 +8,7 @@ datasource db {
 }
 
 // ==========================================
-// USUÁRIO — qualquer usuário autenticado tem acesso total ao financeiro
+// USUÁRIO — cada usuário tem seu próprio financeiro, isolado dos demais
 // ==========================================
 
 model Usuario {
@@ -21,11 +21,16 @@ model Usuario {
   dt_insert DateTime @default(now())
   dt_update DateTime @default(now()) @updatedAt
 
+  planos_contas        PlanoContas[]
+  lancamentos          LancamentoFinanceiro[]
+  bancos               Banco[]
+  configuracao_sistema ConfiguracaoSistema?
+
   @@map("usuario")
 }
 
 // ==========================================
-// MÓDULO FINANCEIRO — financeiro único (sem multi-cliente)
+// MÓDULO FINANCEIRO — cada registro pertence a um único usuário (usuario_id)
 // ==========================================
 
 model PlanoContas {
@@ -33,11 +38,14 @@ model PlanoContas {
   tipo        TipoLancamento
   nome        String
   ativo       Boolean                @default(true)
+  usuario_id  String
   dt_insert   DateTime               @default(now())
   dt_update   DateTime               @default(now()) @updatedAt
 
+  usuario     Usuario                @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
   lancamentos LancamentoFinanceiro[]
 
+  @@index([usuario_id])
   @@map("plano_contas")
 }
 
@@ -58,11 +66,13 @@ model LancamentoFinanceiro {
   grupo_parcela_id       String?
   lancamento_pai_id      String?
   banco_id               String?
+  usuario_id             String
   saldo_banco_anterior   Decimal?               @db.Decimal(15, 2)
   saldo_banco_posterior  Decimal?               @db.Decimal(15, 2)
   dt_insert              DateTime               @default(now())
   dt_update              DateTime               @default(now()) @updatedAt
 
+  usuario                Usuario                @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
   plano_contas           PlanoContas            @relation(fields: [plano_contas_id], references: [id])
   lancamento_pai         LancamentoFinanceiro?  @relation("Parcelas", fields: [lancamento_pai_id], references: [id], onDelete: SetNull)
   parcelas                LancamentoFinanceiro[] @relation("Parcelas")
@@ -77,6 +87,7 @@ model LancamentoFinanceiro {
   @@index([grupo_parcela_id])
   @@index([lancamento_pai_id])
   @@index([banco_id])
+  @@index([usuario_id])
   @@map("lancamento_financeiro")
 }
 
@@ -90,12 +101,15 @@ model Banco {
   saldo_inicial Decimal                @db.Decimal(15, 2)
   saldo_atual   Decimal                @db.Decimal(15, 2)
   ativo         Boolean                @default(true)
+  usuario_id    String
   dt_insert     DateTime               @default(now())
   dt_update     DateTime               @default(now()) @updatedAt
 
+  usuario       Usuario                @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
   lancamentos   LancamentoFinanceiro[]
   movimentacoes MovimentacaoBanco[]
 
+  @@index([usuario_id])
   @@map("banco")
 }
 
@@ -119,9 +133,11 @@ model MovimentacaoBanco {
 }
 
 model ConfiguracaoSistema {
-  id                    String   @id @default("global")
+  usuario_id            String   @id
   controle_bancos_ativo Boolean  @default(false)
   dt_update             DateTime @default(now()) @updatedAt
+
+  usuario               Usuario  @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
 
   @@map("configuracao_sistema")
 }

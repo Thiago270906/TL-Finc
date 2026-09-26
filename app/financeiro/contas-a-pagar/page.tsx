@@ -1,14 +1,14 @@
 import { prisma } from '@/lib/prisma'
-import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import LancamentosView from '@/components/financeiro/LancamentosView'
 import { getConfiguracaoSistema } from '@/app/actions'
+import { getUsuarioLogado } from '@/lib/usuario-logado'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ContasAPagarPage() {
-  const session = await auth()
-  if (!session?.user?.email) redirect('/login')
+  const usuario = await getUsuarioLogado()
+  if (!usuario) redirect('/login')
 
   const config = await getConfiguracaoSistema()
 
@@ -25,6 +25,7 @@ export default async function ContasAPagarPage() {
     prisma.lancamentoFinanceiro.findMany({
       where: {
         tipo: 'DESPESA',
+        usuario_id: usuario.id,
         dt_vencimento: {
           gte: new Date(`${dataInicioMes}T00:00:00.000Z`),
           lte: new Date(`${dataFimMes}T23:59:59.999Z`),
@@ -34,11 +35,11 @@ export default async function ContasAPagarPage() {
       orderBy: { dt_vencimento: 'asc' },
     }),
     prisma.planoContas.findMany({
-      where: { tipo: 'DESPESA', ativo: true },
+      where: { tipo: 'DESPESA', ativo: true, usuario_id: usuario.id },
       orderBy: { nome: 'asc' },
     }),
     config.controle_bancos_ativo
-      ? prisma.banco.findMany({ where: { ativo: true }, orderBy: { nome: 'asc' } })
+      ? prisma.banco.findMany({ where: { ativo: true, usuario_id: usuario.id }, orderBy: { nome: 'asc' } })
       : Promise.resolve([]),
   ])
 

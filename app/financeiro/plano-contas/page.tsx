@@ -1,15 +1,16 @@
 import { prisma } from '@/lib/prisma'
-import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import { getUsuarioLogado } from '@/lib/usuario-logado'
 import PlanoContasView from '@/components/financeiro/PlanoContasView'
 
 export const dynamic = 'force-dynamic'
 
 export default async function PlanoContasPage() {
-  const session = await auth()
-  if (!session?.user?.email) redirect('/login')
+  const usuario = await getUsuarioLogado()
+  if (!usuario) redirect('/login')
 
   const contas = await prisma.planoContas.findMany({
+    where: { usuario_id: usuario.id },
     include: { _count: { select: { lancamentos: true } } },
     orderBy: [{ tipo: 'asc' }, { nome: 'asc' }],
   })

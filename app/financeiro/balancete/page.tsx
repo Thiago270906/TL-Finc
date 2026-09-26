@@ -1,6 +1,6 @@
-import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getBalancete, getConfiguracaoSistema } from '@/app/actions'
+import { getUsuarioLogado } from '@/lib/usuario-logado'
 import { prisma } from '@/lib/prisma'
 import BalanceteView from '@/components/financeiro/BalanceteView'
 
@@ -11,8 +11,8 @@ export default async function BalancetePage({
 }: {
   searchParams: Promise<{ inicio?: string; fim?: string }>
 }) {
-  const session = await auth()
-  if (!session?.user?.email) redirect('/login')
+  const usuario = await getUsuarioLogado()
+  if (!usuario) redirect('/login')
 
   const sp = await searchParams
 
@@ -26,7 +26,7 @@ export default async function BalancetePage({
   const [balancete, bancos] = await Promise.all([
     getBalancete(inicio, fim),
     config.controle_bancos_ativo
-      ? prisma.banco.findMany({ where: { ativo: true }, orderBy: { nome: 'asc' } })
+      ? prisma.banco.findMany({ where: { ativo: true, usuario_id: usuario.id }, orderBy: { nome: 'asc' } })
       : Promise.resolve([]),
   ])
 

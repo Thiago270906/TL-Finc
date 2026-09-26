@@ -22,7 +22,7 @@ async function estornarSaldoBanco(
 ) {
   if (!lancamento.banco_id || lancamento.status !== 'PAGO') return
 
-  const banco = await tx.banco.findUnique({ where: { id: lancamento.banco_id } })
+  const banco = await tx.banco.findFirst({ where: { id: lancamento.banco_id } })
   if (!banco) return
 
   const atual = Number(banco.saldo_atual)
@@ -157,7 +157,7 @@ export async function criarPlanoContas(formData: FormData): Promise<ActionResult
     if (!['DESPESA', 'RECEITA'].includes(tipo)) return { success: false, error: 'Tipo inválido.' }
 
     const conta = await prisma.planoContas.create({
-      data: { tipo, nome: nome.trim() }
+      data: { tipo, nome: nome.trim(), usuario_id: usuario.id }
     })
 
     revalidatePath('/financeiro/plano-contas')
@@ -178,7 +178,7 @@ export async function editarPlanoContas(formData: FormData): Promise<ActionResul
 
     if (!nome?.trim()) return { success: false, error: 'Nome é obrigatório.' }
 
-    const conta = await prisma.planoContas.findFirst({ where: { id } })
+    const conta = await prisma.planoContas.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!conta) return { success: false, error: 'Conta não encontrada.' }
 
     const atualizada = await prisma.planoContas.update({
@@ -198,7 +198,7 @@ export async function excluirPlanoContas(id: string): Promise<ActionResult<undef
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const conta = await prisma.planoContas.findFirst({ where: { id } })
+    const conta = await prisma.planoContas.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!conta) return { success: false, error: 'Conta não encontrada.' }
 
     const emUso = await prisma.lancamentoFinanceiro.count({ where: { plano_contas_id: id } })
@@ -218,7 +218,7 @@ export async function toggleAtivoPlanoContas(id: string): Promise<ActionResult<u
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const conta = await prisma.planoContas.findFirst({ where: { id } })
+    const conta = await prisma.planoContas.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!conta) return { success: false, error: 'Conta não encontrada.' }
 
     await prisma.planoContas.update({ where: { id }, data: { ativo: !conta.ativo } })
@@ -253,14 +253,20 @@ export async function criarLancamento(formData: FormData): Promise<ActionResult<
     if (isNaN(valor) || valor <= 0) return { success: false, error: 'Valor inválido.' }
     if (!plano_contas_id) return { success: false, error: 'Categoria é obrigatória.' }
 
-    const conta = await prisma.planoContas.findFirst({ where: { id: plano_contas_id } })
+    const conta = await prisma.planoContas.findFirst({ where: { id: plano_contas_id, usuario_id: usuario.id } })
     if (!conta) return { success: false, error: 'Categoria não encontrada.' }
+
+    if (banco_id) {
+      const banco = await prisma.banco.findFirst({ where: { id: banco_id, usuario_id: usuario.id } })
+      if (!banco) return { success: false, error: 'Banco não encontrado.' }
+    }
 
     // Freio contra duplo clique/reenvio: mesmo lançamento (mesma descrição, valor, categoria,
     // vencimento e nº de parcelas) inserido há poucos segundos provavelmente é o mesmo envio.
     const ha5Segundos = new Date(Date.now() - 5000)
     const possivelDuplicata = await prisma.lancamentoFinanceiro.findFirst({
       where: {
+        usuario_id: usuario.id,
         tipo, descricao, valor, dt_vencimento, plano_contas_id,
         numero_parcelas: numero_parcelas > 1 ? numero_parcelas : null,
         dt_insert: { gte: ha5Segundos },
@@ -288,6 +294,7 @@ export async function criarLancamento(formData: FormData): Promise<ActionResult<
             parcela_atual: i,
             grupo_parcela_id: grupoParcela,
             banco_id,
+            usuario_id: usuario.id,
           }
         })
       }
@@ -303,6 +310,7 @@ export async function criarLancamento(formData: FormData): Promise<ActionResult<
           plano_contas_id,
           recorrencia,
           banco_id,
+          usuario_id: usuario.id,
         }
       })
     }
@@ -334,12 +342,20 @@ export async function editarLancamento(formData: FormData): Promise<ActionResult
     if (!descricao) return { success: false, error: 'Descrição é obrigatória.' }
     if (isNaN(valor) || valor <= 0) return { success: false, error: 'Valor inválido.' }
 
-    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
+    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
+
+    const conta = await prisma.planoContas.findFirst({ where: { id: plano_contas_id, usuario_id: usuario.id } })
+    if (!conta) return { success: false, error: 'Categoria não encontrada.' }
 
     // O vínculo com banco só pode mudar antes de o lançamento ser pago —
     // depois disso o saldo já foi sincronizado e alterar o vínculo dessincronizaria o extrato.
     const podeAlterarBanco = lancamento.status !== 'PAGO'
+
+    if (podeAlterarBanco && banco_id) {
+      const banco = await prisma.banco.findFirst({ where: { id: banco_id, usuario_id: usuario.id } })
+      if (!banco) return { success: false, error: 'Banco não encontrado.' }
+    }
 
     await prisma.lancamentoFinanceiro.update({
       where: { id },
@@ -352,13 +368,13 @@ export async function editarLancamento(formData: FormData): Promise<ActionResult
     const aplicarATodos = formData.get('aplicar_a_todos') === 'true'
     if (aplicarATodos && lancamento.grupo_parcela_id) {
       await prisma.lancamentoFinanceiro.updateMany({
-        where: { grupo_parcela_id: lancamento.grupo_parcela_id, id: { not: id } },
+        where: { grupo_parcela_id: lancamento.grupo_parcela_id, id: { not: id }, usuario_id: usuario.id },
         data: { descricao, beneficiario, valor, numero_documento, plano_contas_id },
       })
       // O banco só é propagado às parcelas-irmãs que ainda não foram pagas (mesma regra do individual).
       if (podeAlterarBanco) {
         await prisma.lancamentoFinanceiro.updateMany({
-          where: { grupo_parcela_id: lancamento.grupo_parcela_id, id: { not: id }, status: { not: 'PAGO' } },
+          where: { grupo_parcela_id: lancamento.grupo_parcela_id, id: { not: id }, status: { not: 'PAGO' }, usuario_id: usuario.id },
           data: { banco_id },
         })
       }
@@ -379,7 +395,7 @@ export async function excluirGrupoParcelas(grupo_parcela_id: string): Promise<Ac
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
     const lancamentos = await prisma.lancamentoFinanceiro.findMany({
-      where: { grupo_parcela_id },
+      where: { grupo_parcela_id, usuario_id: usuario.id },
     })
     const idsArr = lancamentos.map(l => l.id)
 
@@ -410,7 +426,7 @@ export async function excluirParcelasAPartirDesta(id: string): Promise<ActionRes
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
     const lancamento = await prisma.lancamentoFinanceiro.findFirst({
-      where: { id },
+      where: { id, usuario_id: usuario.id },
       select: { grupo_parcela_id: true, parcela_atual: true },
     })
     if (!lancamento?.grupo_parcela_id || lancamento.parcela_atual == null) {
@@ -422,6 +438,7 @@ export async function excluirParcelasAPartirDesta(id: string): Promise<ActionRes
         grupo_parcela_id: lancamento.grupo_parcela_id,
         parcela_atual: { gte: lancamento.parcela_atual },
         status: { not: 'PAGO' },
+        usuario_id: usuario.id,
       },
       select: { id: true },
     })
@@ -444,7 +461,7 @@ export async function pagarLancamento(id: string, dt_pagamento: string): Promise
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
+    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
     if (lancamento.status === 'PAGO') return { success: false, error: 'Este lançamento já está pago.' }
 
@@ -512,6 +529,7 @@ export async function pagarLancamento(id: string, dt_pagamento: string): Promise
             status: 'PENDENTE',
             lancamento_pai_id: id,
             banco_id: lancamento.banco_id,
+            usuario_id: lancamento.usuario_id,
           }
         })
       }
@@ -549,7 +567,7 @@ export async function registrarPagamentoParcial(
       await tx.$queryRaw`SELECT id FROM lancamento_financeiro WHERE id = ${lancamentoId} FOR UPDATE`
 
       const lancamento = await tx.lancamentoFinanceiro.findFirst({
-        where: { id: lancamentoId },
+        where: { id: lancamentoId, usuario_id: usuario.id },
         include: { parciais: true },
       })
       if (!lancamento) throw new Error('Lançamento não encontrado.')
@@ -600,6 +618,7 @@ export async function registrarPagamentoParcial(
               recorrencia: lancamento.recorrencia,
               status: 'PENDENTE',
               lancamento_pai_id: lancamentoId,
+              usuario_id: lancamento.usuario_id,
             }
           })
         }
@@ -625,7 +644,7 @@ export async function excluirPagamentoParcial(parcialId: string): Promise<Action
       where: { id: parcialId },
       include: { lancamento: true },
     })
-    if (!parcial) {
+    if (!parcial || parcial.lancamento.usuario_id !== usuario.id) {
       return { success: false, error: 'Parcial não encontrado.' }
     }
 
@@ -649,7 +668,7 @@ export async function excluirEAvancarRecorrencia(id: string): Promise<ActionResu
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
+    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
 
     const baseDate = new Date(lancamento.dt_vencimento)
@@ -681,6 +700,7 @@ export async function excluirEAvancarRecorrencia(id: string): Promise<ActionResu
           status: 'PENDENTE',
           lancamento_pai_id: id,
           banco_id: lancamento.banco_id,
+          usuario_id: lancamento.usuario_id,
         }
       })
     })
@@ -700,7 +720,7 @@ export async function cancelarLancamento(id: string): Promise<ActionResult<undef
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
+    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
 
     await prisma.lancamentoFinanceiro.update({ where: { id }, data: { status: 'CANCELADO' } })
@@ -719,7 +739,7 @@ export async function excluirLancamento(id: string): Promise<ActionResult<undefi
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id } })
+    const lancamento = await prisma.lancamentoFinanceiro.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
 
     await prisma.$transaction(async (tx) => {
@@ -750,7 +770,7 @@ export async function salvarAnexoFinanceiro(dados: {
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
     const lancamento = await prisma.lancamentoFinanceiro.findFirst({
-      where: { id: dados.lancamento_id }
+      where: { id: dados.lancamento_id, usuario_id: usuario.id }
     })
     if (!lancamento) return { success: false, error: 'Lançamento não encontrado.' }
 
@@ -774,8 +794,8 @@ export async function excluirAnexoFinanceiro(anexoId: string): Promise<ActionRes
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const anexo = await prisma.anexoFinanceiro.findUnique({ where: { id: anexoId } })
-    if (!anexo) return { success: false, error: 'Anexo não encontrado.' }
+    const anexo = await prisma.anexoFinanceiro.findUnique({ where: { id: anexoId }, include: { lancamento: true } })
+    if (!anexo || anexo.lancamento.usuario_id !== usuario.id) return { success: false, error: 'Anexo não encontrado.' }
 
     const utapi = new UTApi()
     await utapi.deleteFiles([anexo.key])
@@ -795,6 +815,7 @@ export async function getLancamentosFinanceiros(
 
   const where: import('@prisma/client').Prisma.LancamentoFinanceiroWhereInput = {
     tipo,
+    usuario_id: usuario.id,
   }
 
   if (filtros?.dataInicio && filtros?.dataFim) {
@@ -838,6 +859,7 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
   const [noPeriodo, todosPagosAgrupado, parciaisPendentes] = await Promise.all([
     prisma.lancamentoFinanceiro.findMany({
       where: {
+        usuario_id: usuario.id,
         status: { not: 'CANCELADO' },
         dt_vencimento: { gte: inicio, lte: fim },
       },
@@ -848,11 +870,11 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
     // com o tempo se cada lançamento pago virar uma linha transferida pela rede.
     prisma.lancamentoFinanceiro.groupBy({
       by: ['tipo'],
-      where: { status: 'PAGO' },
+      where: { status: 'PAGO', usuario_id: usuario.id },
       _sum: { valor: true },
     }),
     prisma.pagamentoParcial.findMany({
-      where: { lancamento: { status: 'PENDENTE' } },
+      where: { lancamento: { status: 'PENDENTE', usuario_id: usuario.id } },
       select: { valor: true, lancamento: { select: { tipo: true } } }
     }),
   ])
@@ -923,6 +945,7 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
 
   const parcelasReceita = await prisma.lancamentoFinanceiro.findMany({
     where: {
+      usuario_id: usuario.id,
       tipo: 'RECEITA',
       status: { not: 'CANCELADO' },
       grupo_parcela_id: { not: null },
@@ -1011,9 +1034,9 @@ export const getConfiguracaoSistema = cache(async (): Promise<{ controle_bancos_
   if (!usuario) return { controle_bancos_ativo: false }
 
   // findUnique em vez de upsert: evita uma escrita no banco a cada carregamento de página
-  // quando a configuração (comum) já existe — só cria na primeira vez que o sistema roda.
-  const config = await prisma.configuracaoSistema.findUnique({ where: { id: 'global' } })
-    ?? await prisma.configuracaoSistema.create({ data: { id: 'global' } })
+  // quando a configuração (comum) já existe — só cria na primeira vez que o usuário roda o sistema.
+  const config = await prisma.configuracaoSistema.findUnique({ where: { usuario_id: usuario.id } })
+    ?? await prisma.configuracaoSistema.create({ data: { usuario_id: usuario.id } })
   return { controle_bancos_ativo: config.controle_bancos_ativo }
 })
 
@@ -1023,12 +1046,12 @@ export async function toggleControleBancos(): Promise<ActionResult<{ controle_ba
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
     const atual = await prisma.configuracaoSistema.upsert({
-      where: { id: 'global' },
+      where: { usuario_id: usuario.id },
       update: {},
-      create: { id: 'global' },
+      create: { usuario_id: usuario.id },
     })
     const atualizado = await prisma.configuracaoSistema.update({
-      where: { id: 'global' },
+      where: { usuario_id: usuario.id },
       data: { controle_bancos_ativo: !atual.controle_bancos_ativo },
     })
 
@@ -1057,7 +1080,7 @@ export async function criarBanco(formData: FormData): Promise<ActionResult<impor
 
     const banco = await prisma.$transaction(async (tx) => {
       const novoBanco = await tx.banco.create({
-        data: { nome, saldo_inicial, saldo_atual: saldo_inicial },
+        data: { nome, saldo_inicial, saldo_atual: saldo_inicial, usuario_id: usuario.id },
       })
       await tx.movimentacaoBanco.create({
         data: {
@@ -1088,7 +1111,7 @@ export async function toggleAtivoBanco(id: string): Promise<ActionResult<undefin
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const banco = await prisma.banco.findFirst({ where: { id } })
+    const banco = await prisma.banco.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!banco) return { success: false, error: 'Banco não encontrado.' }
 
     await prisma.banco.update({ where: { id }, data: { ativo: !banco.ativo } })
@@ -1106,7 +1129,7 @@ export async function excluirBanco(id: string): Promise<ActionResult<undefined>>
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const banco = await prisma.banco.findFirst({ where: { id } })
+    const banco = await prisma.banco.findFirst({ where: { id, usuario_id: usuario.id } })
     if (!banco) return { success: false, error: 'Banco não encontrado.' }
 
     const emUso = await prisma.lancamentoFinanceiro.count({ where: { banco_id: id } })
@@ -1142,8 +1165,8 @@ export async function transferirEntreContas(
     if (isNaN(valor) || valor <= 0) return { success: false, error: 'Valor inválido.' }
 
     const resultado = await prisma.$transaction(async (tx) => {
-      const origem = await tx.banco.findFirst({ where: { id: bancoOrigemId } })
-      const destino = await tx.banco.findFirst({ where: { id: bancoDestinoId } })
+      const origem = await tx.banco.findFirst({ where: { id: bancoOrigemId, usuario_id: usuario.id } })
+      const destino = await tx.banco.findFirst({ where: { id: bancoDestinoId, usuario_id: usuario.id } })
       if (!origem || !destino) throw new Error('Banco não encontrado.')
       if (!origem.ativo || !destino.ativo) throw new Error('Não é possível transferir com um banco inativo.')
 
@@ -1198,6 +1221,9 @@ export async function getExtratoBanco(bancoId: string) {
   const usuario = await getUsuarioLogado()
   if (!usuario) return []
 
+  const banco = await prisma.banco.findFirst({ where: { id: bancoId, usuario_id: usuario.id } })
+  if (!banco) return []
+
   const movimentacoes = await prisma.movimentacaoBanco.findMany({
     where: { banco_id: bancoId },
     orderBy: { dt_movimento: 'desc' },
@@ -1218,7 +1244,7 @@ export async function getTransferencias() {
   // que não são o ajuste de saldo inicial (esse é o marcador "de propósito" usado
   // em transferirEntreContas, sem precisar de uma coluna nova no banco).
   const movimentacoes = await prisma.movimentacaoBanco.findMany({
-    where: { lancamento_id: null, tipo: { not: 'AJUSTE_INICIAL' } },
+    where: { lancamento_id: null, tipo: { not: 'AJUSTE_INICIAL' }, banco: { usuario_id: usuario.id } },
     include: { banco: { select: { nome: true } } },
     orderBy: { dt_movimento: 'desc' },
   })
@@ -1245,7 +1271,7 @@ export async function confirmarImportacaoExtrato(
     const usuario = await getUsuarioLogado()
     if (!usuario) return { success: false, error: 'Não autenticado.' }
 
-    const banco = await prisma.banco.findFirst({ where: { id: bancoId } })
+    const banco = await prisma.banco.findFirst({ where: { id: bancoId, usuario_id: usuario.id } })
     if (!banco) return { success: false, error: 'Banco não encontrado.' }
 
     const linhasValidas = linhas.filter(l => l.acao !== 'IGNORAR')
@@ -1276,7 +1302,7 @@ export async function confirmarImportacaoExtrato(
 
         if (linha.acao === 'CONCILIAR' && linha.lancamentoConciliadoId) {
           if (usados.has(linha.lancamentoConciliadoId)) continue
-          const lancamento = await tx.lancamentoFinanceiro.findFirst({ where: { id: linha.lancamentoConciliadoId } })
+          const lancamento = await tx.lancamentoFinanceiro.findFirst({ where: { id: linha.lancamentoConciliadoId, usuario_id: usuario.id } })
           if (!lancamento || lancamento.status !== 'PENDENTE') continue
           usados.add(linha.lancamentoConciliadoId)
 
@@ -1304,6 +1330,9 @@ export async function confirmarImportacaoExtrato(
           })
           conciliados++
         } else if (linha.acao === 'CRIAR' && linha.planoContasId) {
+          const contaValida = await tx.planoContas.findFirst({ where: { id: linha.planoContasId, usuario_id: usuario.id } })
+          if (!contaValida) continue
+
           const novoLancamento = await tx.lancamentoFinanceiro.create({
             data: {
               tipo: linha.tipoMovimento === 'ENTRADA' ? 'RECEITA' : 'DESPESA',
@@ -1317,6 +1346,7 @@ export async function confirmarImportacaoExtrato(
               banco_id: bancoId,
               saldo_banco_anterior: saldoAnterior,
               saldo_banco_posterior: saldoPosterior,
+              usuario_id: usuario.id,
             },
           })
           await tx.movimentacaoBanco.create({

@@ -21,6 +21,6 @@ export async function POST(request: Request) {
     return NextResponse.json<ActionResult<PreviaImportacaoExtrato>>({ success: false, error: 'Selecione um arquivo PDF.' }, { status: 400 })
   }
 
-  const resultado = await analisarExtratoPdf(bancoId, arquivo)
+  const resultado = await analisarExtratoPdf(bancoId, arquivo, usuario.id)
   return NextResponse.json(resultado)
 }

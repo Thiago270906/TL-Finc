@@ -1,21 +1,21 @@
 import { prisma } from '@/lib/prisma'
-import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getConfiguracaoSistema, getTransferencias } from '@/app/actions'
+import { getUsuarioLogado } from '@/lib/usuario-logado'
 import BancosView from '@/components/financeiro/BancosView'
 
 export const dynamic = 'force-dynamic'
 
 export default async function BancosPage() {
-  const session = await auth()
-  if (!session?.user?.email) redirect('/login')
+  const usuario = await getUsuarioLogado()
+  if (!usuario) redirect('/login')
 
   const config = await getConfiguracaoSistema()
   if (!config.controle_bancos_ativo) redirect('/financeiro/balancete')
 
   const [bancos, planoContas, transferencias] = await Promise.all([
-    prisma.banco.findMany({ orderBy: { nome: 'asc' } }),
-    prisma.planoContas.findMany({ where: { ativo: true }, orderBy: { nome: 'asc' } }),
+    prisma.banco.findMany({ where: { usuario_id: usuario.id }, orderBy: { nome: 'asc' } }),
+    prisma.planoContas.findMany({ where: { ativo: true, usuario_id: usuario.id }, orderBy: { nome: 'asc' } }),
     getTransferencias(),
   ])
 

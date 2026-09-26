@@ -9,7 +9,7 @@ async function main() {
   const senhaPlana = crypto.randomBytes(9).toString('base64').replace(/[+/=]/g, '').slice(0, 12)
   const senhaHash = await bcrypt.hash(senhaPlana, 10)
 
-  await prisma.usuario.create({
+  const usuario = await prisma.usuario.create({
     data: {
       nome: 'Thiago',
       email,
@@ -20,8 +20,8 @@ async function main() {
 
   await prisma.planoContas.createMany({
     data: [
-      { tipo: 'RECEITA', nome: 'Receita Geral' },
-      { tipo: 'DESPESA', nome: 'Despesa Geral' },
+      { tipo: 'RECEITA', nome: 'Receita Geral', usuario_id: usuario.id },
+      { tipo: 'DESPESA', nome: 'Despesa Geral', usuario_id: usuario.id },
     ],
   })
 

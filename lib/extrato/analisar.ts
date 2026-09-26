@@ -8,10 +8,11 @@ import type { PreviaImportacaoExtrato, LinhaPreviaImportacao } from '@/lib/extra
 
 export async function analisarExtratoPdf(
   bancoId: string,
-  arquivo: File
+  arquivo: File,
+  usuarioId: string
 ): Promise<ActionResult<PreviaImportacaoExtrato>> {
   try {
-    const banco = await prisma.banco.findFirst({ where: { id: bancoId } })
+    const banco = await prisma.banco.findFirst({ where: { id: bancoId, usuario_id: usuarioId } })
     if (!banco) return { success: false, error: 'Banco não encontrado.' }
 
     if (!arquivo || arquivo.size === 0) return { success: false, error: 'Selecione um arquivo PDF.' }
@@ -35,9 +36,9 @@ export async function analisarExtratoPdf(
     const dataMax = new Date(Math.max(...datasMs) + 5 * 86400000)
 
     const [planosContas, pendentes, movimentacoesExistentes] = await Promise.all([
-      prisma.planoContas.findMany({ where: { ativo: true }, orderBy: { nome: 'asc' } }),
+      prisma.planoContas.findMany({ where: { ativo: true, usuario_id: usuarioId }, orderBy: { nome: 'asc' } }),
       prisma.lancamentoFinanceiro.findMany({
-        where: { status: 'PENDENTE', dt_vencimento: { gte: dataMin, lte: dataMax } },
+        where: { status: 'PENDENTE', dt_vencimento: { gte: dataMin, lte: dataMax }, usuario_id: usuarioId },
         select: { id: true, tipo: true, valor: true, dt_vencimento: true, descricao: true },
       }),
       prisma.movimentacaoBanco.findMany({
