@@ -17,14 +17,16 @@ const ITENS_FINANCEIRO = [
 ] as const
 
 const ITEM_BANCOS = { href: '/financeiro/bancos', icon: '🏦', label: 'Bancos' } as const
+const ITEM_INVESTIMENTOS = { href: '/financeiro/investimentos', icon: '📈', label: 'Investimentos' } as const
 
 interface AuthenticatedLayoutProps {
   children: React.ReactNode
   usuario: Usuario
   controleBancosAtivo?: boolean
+  investimentoAtivo?: boolean
 }
 
-export default function AuthenticatedLayout({ children, usuario, controleBancosAtivo }: AuthenticatedLayoutProps) {
+export default function AuthenticatedLayout({ children, usuario, controleBancosAtivo, investimentoAtivo }: AuthenticatedLayoutProps) {
   const pathname = usePathname()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [showConfiguracoes, setShowConfiguracoes] = useState(false)
@@ -33,7 +35,11 @@ export default function AuthenticatedLayout({ children, usuario, controleBancosA
       return <main className="min-h-screen bg-gray-100 flex flex-col justify-center">{children}</main>
   }
 
-  const itensMenu = controleBancosAtivo ? [...ITENS_FINANCEIRO, ITEM_BANCOS] : ITENS_FINANCEIRO
+  const itensMenu = [
+    ...ITENS_FINANCEIRO,
+    ...(controleBancosAtivo ? [ITEM_BANCOS] : []),
+    ...(investimentoAtivo ? [ITEM_INVESTIMENTOS] : []),
+  ]
 
   function fecharSidebarSeMobile() {
     if (typeof window !== 'undefined' && window.innerWidth < 1024) setIsSidebarOpen(false)

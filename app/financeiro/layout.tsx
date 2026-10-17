@@ -15,7 +15,11 @@ export default async function FinanceiroLayout({
   const config = await getConfiguracaoSistema()
 
   return (
-    <AuthenticatedLayout usuario={usuario as unknown as import('@/types').Usuario} controleBancosAtivo={config.controle_bancos_ativo}>
+    <AuthenticatedLayout
+      usuario={usuario as unknown as import('@/types').Usuario}
+      controleBancosAtivo={config.controle_bancos_ativo}
+      investimentoAtivo={config.investimento_ativo}
+    >
       {children}
     </AuthenticatedLayout>
   )

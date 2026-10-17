@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { toast } from 'sonner'
-import { X, User, Palette, Sun, Moon, Check, Settings2, Landmark, Loader2 } from 'lucide-react'
-import { atualizarUsuario, getConfiguracaoSistema, toggleControleBancos } from '@/app/actions'
+import { X, User, Palette, Sun, Moon, Check, Settings2, Landmark, TrendingUp, Loader2 } from 'lucide-react'
+import { atualizarUsuario, getConfiguracaoSistema, toggleControleBancos, toggleInvestimentoAtivo } from '@/app/actions'
 import { CORES_SISTEMA, salvarAparencia, lerAparenciaSalva, type TemaFundo, type CorSistema } from '@/lib/theme'
 import type { Usuario } from '@/types'
 
@@ -224,23 +224,36 @@ function AbaAplicativo() {
 function AbaSistema() {
   const router = useRouter()
   const [carregando, setCarregando] = useState(true)
-  const [ativo, setAtivo] = useState(false)
-  const [alternando, setAlternando] = useState(false)
+  const [ativoBancos, setAtivoBancos] = useState(false)
+  const [ativoInvestimento, setAtivoInvestimento] = useState(false)
+  const [alternandoBancos, setAlternandoBancos] = useState(false)
+  const [alternandoInvestimento, setAlternandoInvestimento] = useState(false)
 
   useEffect(() => {
     getConfiguracaoSistema().then(config => {
-      setAtivo(config.controle_bancos_ativo)
+      setAtivoBancos(config.controle_bancos_ativo)
+      setAtivoInvestimento(config.investimento_ativo)
       setCarregando(false)
     })
   }, [])
 
-  async function handleToggle() {
-    setAlternando(true)
+  async function handleToggleBancos() {
+    setAlternandoBancos(true)
     const resultado = await toggleControleBancos()
-    setAlternando(false)
+    setAlternandoBancos(false)
     if (!resultado.success) { toast.error(resultado.error); return }
-    setAtivo(resultado.data.controle_bancos_ativo)
+    setAtivoBancos(resultado.data.controle_bancos_ativo)
     toast.success(resultado.data.controle_bancos_ativo ? 'Controle de Bancos ativado.' : 'Controle de Bancos desativado.')
+    router.refresh()
+  }
+
+  async function handleToggleInvestimento() {
+    setAlternandoInvestimento(true)
+    const resultado = await toggleInvestimentoAtivo()
+    setAlternandoInvestimento(false)
+    if (!resultado.success) { toast.error(resultado.error); return }
+    setAtivoInvestimento(resultado.data.investimento_ativo)
+    toast.success(resultado.data.investimento_ativo ? 'Investimentos ativado.' : 'Investimentos desativado.')
     router.refresh()
   }
 
@@ -256,7 +269,7 @@ function AbaSistema() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-background/40 p-4">
         <div className="flex items-start gap-3 min-w-0">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ativo ? 'bg-emerald-500/10 text-emerald-400' : 'bg-surface-highlight text-gray-400'}`}>
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ativoBancos ? 'bg-emerald-500/10 text-emerald-400' : 'bg-surface-highlight text-gray-400'}`}>
             <Landmark size={17} />
           </div>
           <div className="min-w-0">
@@ -267,19 +280,39 @@ function AbaSistema() {
           </div>
         </div>
         <button
-          onClick={handleToggle}
-          disabled={alternando}
-          className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${ativo ? 'bg-emerald-600' : 'bg-surface-highlight border border-border'}`}
+          onClick={handleToggleBancos}
+          disabled={alternandoBancos}
+          className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${ativoBancos ? 'bg-emerald-600' : 'bg-surface-highlight border border-border'}`}
           aria-label="Ativar controle de Bancos"
         >
-          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${ativo ? 'translate-x-5' : 'translate-x-0'}`} />
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${ativoBancos ? 'translate-x-5' : 'translate-x-0'}`} />
+        </button>
+      </div>
+
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-background/40 p-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ativoInvestimento ? 'bg-emerald-500/10 text-emerald-400' : 'bg-surface-highlight text-gray-400'}`}>
+            <TrendingUp size={17} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">Investimentos</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Registre aportes e resgates que debitam/creditam de verdade o saldo de um banco, com rastro no extrato dele.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleToggleInvestimento}
+          disabled={alternandoInvestimento}
+          className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${ativoInvestimento ? 'bg-emerald-600' : 'bg-surface-highlight border border-border'}`}
+          aria-label="Ativar Investimentos"
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${ativoInvestimento ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
       </div>
 
       <p className="text-[11px] text-gray-500 pt-2 border-t border-border">
-        {ativo
-          ? 'Um item "Bancos" apareceu no menu lateral. Desativar aqui só esconde o recurso — nada do que já foi cadastrado é apagado.'
-          : 'Desativado por padrão. Ativando, nada do que já existe hoje é alterado — o recurso só passa a aparecer nas telas.'}
+        Desativado por padrão. Ativando ou desativando, nada do que já foi cadastrado é apagado — o recurso só passa a aparecer ou desaparecer no menu lateral.
       </p>
     </div>
   )

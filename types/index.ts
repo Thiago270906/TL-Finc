@@ -89,12 +89,37 @@ export type MovimentacaoBanco = {
   id: string
   banco_id: string
   lancamento_id: string | null
+  investimento_id: string | null
   tipo: TipoMovimentacaoBanco
   descricao: string
   valor: number
   saldo_anterior: number
   saldo_posterior: number
   dt_movimento: Date | string
+}
+
+// =============================================================================
+// MÓDULO INVESTIMENTOS
+// =============================================================================
+
+export type TipoInvestimento = 'APORTE' | 'RESGATE'
+
+export type Investimento = {
+  id: string
+  tipo: TipoInvestimento
+  descricao: string
+  valor: number
+  dt_movimento: Date | string
+  numero_documento: string | null
+  banco_id: string
+  saldo_banco_anterior: number
+  saldo_banco_posterior: number
+  dt_insert: Date | string
+  dt_update: Date | string
+}
+
+export type InvestimentoComBanco = Investimento & {
+  banco: { id: string; nome: string }
 }
 
 export type AnexoFinanceiro = {

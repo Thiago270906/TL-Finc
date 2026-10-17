@@ -24,6 +24,7 @@ model Usuario {
   planos_contas        PlanoContas[]
   lancamentos          LancamentoFinanceiro[]
   bancos               Banco[]
+  investimentos        Investimento[]
   configuracao_sistema ConfiguracaoSistema?
 
   @@map("usuario")
@@ -108,6 +109,7 @@ model Banco {
   usuario       Usuario                @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
   lancamentos   LancamentoFinanceiro[]
   movimentacoes MovimentacaoBanco[]
+  investimentos Investimento[]
 
   @@index([usuario_id])
   @@map("banco")
@@ -117,6 +119,7 @@ model MovimentacaoBanco {
   id              String                @id @default(uuid())
   banco_id        String
   lancamento_id   String?
+  investimento_id String?
   tipo            TipoMovimentacaoBanco
   descricao       String
   valor           Decimal               @db.Decimal(15, 2)
@@ -126,15 +129,50 @@ model MovimentacaoBanco {
 
   banco           Banco                 @relation(fields: [banco_id], references: [id], onDelete: Cascade)
   lancamento      LancamentoFinanceiro? @relation(fields: [lancamento_id], references: [id], onDelete: SetNull)
+  investimento    Investimento?         @relation(fields: [investimento_id], references: [id], onDelete: SetNull)
 
   @@index([banco_id])
   @@index([lancamento_id])
+  @@index([investimento_id])
   @@map("movimentacao_banco")
+}
+
+// ==========================================
+// MÓDULO INVESTIMENTOS — aporte/resgate que movimenta de verdade o saldo
+// do banco vinculado (débito no aporte, crédito no resgate), com rastro
+// em MovimentacaoBanco. Diferente de um lançamento comum: não tem plano
+// de contas, não entra em receitas/despesas do balancete.
+// ==========================================
+
+model Investimento {
+  id                    String              @id @default(uuid())
+  tipo                  TipoInvestimento
+  descricao             String
+  valor                 Decimal             @db.Decimal(15, 2)
+  dt_movimento          DateTime
+  numero_documento      String?
+  banco_id              String
+  saldo_banco_anterior  Decimal             @db.Decimal(15, 2)
+  saldo_banco_posterior Decimal             @db.Decimal(15, 2)
+  usuario_id            String
+  dt_insert             DateTime            @default(now())
+  dt_update             DateTime            @default(now()) @updatedAt
+
+  usuario               Usuario             @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+  banco                 Banco               @relation(fields: [banco_id], references: [id], onDelete: Restrict)
+  movimentacoes_banco   MovimentacaoBanco[]
+
+  @@index([usuario_id])
+  @@index([banco_id])
+  @@index([tipo])
+  @@index([dt_movimento])
+  @@map("investimento")
 }
 
 model ConfiguracaoSistema {
   usuario_id            String   @id
   controle_bancos_ativo Boolean  @default(false)
+  investimento_ativo    Boolean  @default(false)
   dt_update             DateTime @default(now()) @updatedAt
 
   usuario               Usuario  @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
@@ -193,4 +231,9 @@ enum TipoMovimentacaoBanco {
   ENTRADA
   SAIDA
   AJUSTE_INICIAL
+}
+
+enum TipoInvestimento {
+  APORTE
+  RESGATE
 }

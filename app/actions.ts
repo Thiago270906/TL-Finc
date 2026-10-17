@@ -1029,15 +1029,15 @@ export async function getBalancete(dataInicio: string, dataFim: string) {
 
 // cache() deduplica dentro da mesma requisição — layout e página do financeiro chamam
 // essa função de forma independente, mas só precisam de uma consulta.
-export const getConfiguracaoSistema = cache(async (): Promise<{ controle_bancos_ativo: boolean }> => {
+export const getConfiguracaoSistema = cache(async (): Promise<{ controle_bancos_ativo: boolean; investimento_ativo: boolean }> => {
   const usuario = await getUsuarioLogado()
-  if (!usuario) return { controle_bancos_ativo: false }
+  if (!usuario) return { controle_bancos_ativo: false, investimento_ativo: false }
 
   // findUnique em vez de upsert: evita uma escrita no banco a cada carregamento de página
   // quando a configuração (comum) já existe — só cria na primeira vez que o usuário roda o sistema.
   const config = await prisma.configuracaoSistema.findUnique({ where: { usuario_id: usuario.id } })
     ?? await prisma.configuracaoSistema.create({ data: { usuario_id: usuario.id } })
-  return { controle_bancos_ativo: config.controle_bancos_ativo }
+  return { controle_bancos_ativo: config.controle_bancos_ativo, investimento_ativo: config.investimento_ativo }
 })
 
 export async function toggleControleBancos(): Promise<ActionResult<{ controle_bancos_ativo: boolean }>> {
@@ -1057,6 +1057,28 @@ export async function toggleControleBancos(): Promise<ActionResult<{ controle_ba
 
     revalidatePath('/', 'layout')
     return { success: true, data: { controle_bancos_ativo: atualizado.controle_bancos_ativo } }
+  } catch {
+    return { success: false, error: 'Erro ao alterar configuração.' }
+  }
+}
+
+export async function toggleInvestimentoAtivo(): Promise<ActionResult<{ investimento_ativo: boolean }>> {
+  try {
+    const usuario = await getUsuarioLogado()
+    if (!usuario) return { success: false, error: 'Não autenticado.' }
+
+    const atual = await prisma.configuracaoSistema.upsert({
+      where: { usuario_id: usuario.id },
+      update: {},
+      create: { usuario_id: usuario.id },
+    })
+    const atualizado = await prisma.configuracaoSistema.update({
+      where: { usuario_id: usuario.id },
+      data: { investimento_ativo: !atual.investimento_ativo },
+    })
+
+    revalidatePath('/', 'layout')
+    return { success: true, data: { investimento_ativo: atualizado.investimento_ativo } }
   } catch {
     return { success: false, error: 'Erro ao alterar configuração.' }
   }
@@ -1133,7 +1155,8 @@ export async function excluirBanco(id: string): Promise<ActionResult<undefined>>
     if (!banco) return { success: false, error: 'Banco não encontrado.' }
 
     const emUso = await prisma.lancamentoFinanceiro.count({ where: { banco_id: id } })
-    if (emUso > 0) return { success: false, error: 'Este banco possui lançamentos vinculados e não pode ser excluído.' }
+    const emUsoInvestimento = await prisma.investimento.count({ where: { banco_id: id } })
+    if (emUso > 0 || emUsoInvestimento > 0) return { success: false, error: 'Este banco possui lançamentos ou investimentos vinculados e não pode ser excluído.' }
 
     await prisma.banco.delete({ where: { id } })
 
@@ -1240,11 +1263,11 @@ export async function getTransferencias() {
   const usuario = await getUsuarioLogado()
   if (!usuario) return []
 
-  // Transferências entre contas são as únicas MovimentacaoBanco sem lancamento_id
-  // que não são o ajuste de saldo inicial (esse é o marcador "de propósito" usado
-  // em transferirEntreContas, sem precisar de uma coluna nova no banco).
+  // Transferências entre contas são as únicas MovimentacaoBanco sem lancamento_id nem
+  // investimento_id que não são o ajuste de saldo inicial (esse é o marcador "de propósito"
+  // usado em transferirEntreContas, sem precisar de uma coluna nova no banco).
   const movimentacoes = await prisma.movimentacaoBanco.findMany({
-    where: { lancamento_id: null, tipo: { not: 'AJUSTE_INICIAL' }, banco: { usuario_id: usuario.id } },
+    where: { lancamento_id: null, investimento_id: null, tipo: { not: 'AJUSTE_INICIAL' }, banco: { usuario_id: usuario.id } },
     include: { banco: { select: { nome: true } } },
     orderBy: { dt_movimento: 'desc' },
   })
