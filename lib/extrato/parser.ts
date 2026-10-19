@@ -7,8 +7,8 @@ import type { ExtratoParseado, TransacaoExtrato } from './tipos'
 // em PDF, gera o texto em ordem de leitura (linha a linha, não coluna a coluna),
 // então conseguimos reconhecer as transações com padrões de texto em vez de
 // depender de um layout fixo por banco. Damos nomes amigáveis pra alguns bancos
-// conhecidos, mas os padrões abaixo não são exclusivos do Sicredi — tendem a
-// funcionar em qualquer extrato que siga um desses três formatos comuns.
+// conhecidos, mas os padrões abaixo não são exclusivos de um banco só — tendem
+// a funcionar em qualquer extrato que siga um desses formatos comuns.
 // =============================================================================
 
 const RE_DATA = /\d{2}\/\d{2}\/\d{4}/
@@ -97,6 +97,82 @@ function extrairPadraoSinalNoNumero(textoFlat: string): TransacaoExtrato[] {
   return transacoes
 }
 
+// --- Padrão D: saldo corrido — ex. Bradesco: tabela "Data | Histórico | Docto. |
+// Crédito (R$) | Débito (R$) | Saldo (R$)". Não existe sinal nem letra D/C: cada
+// linha traz só um valor seguido do saldo acumulado, e é preciso comparar com o
+// saldo da linha anterior para saber se foi entrada ou saída. A data só aparece
+// na primeira linha de cada dia, e a descrição pode vir quebrada em 2-3 linhas
+// (ex.: "PIX RECEBIDO" numa linha, "REM: Fulano 06/10 123456 500,00 897,09" na
+// seguinte) — por isso esse padrão trabalha linha a linha, e não no texto achatado
+// usado pelos outros padrões.
+function extrairPadraoSaldoCorrido(textoOriginal: string): TransacaoExtrato[] {
+  const RE_LINHA_COM_DATA = /^(\d{2}\/\d{2}\/\d{4})\s+(.*)$/
+  const RE_VALOR_E_SALDO_NO_FIM = new RegExp(`^(.*\\S)\\s+(${RE_VALOR.source})\\s+(${RE_VALOR.source})\\s*$`)
+  const RE_SALDO_NO_FIM = new RegExp(`(${RE_VALOR.source})\\s*$`)
+  const RE_IGNORAR = /\(r\$\)|^extrato de:|^data:|^nome:|^total\b|^bradesco|^folha\b/i
+  const RE_MARCADOR_SALDO = /^cod\.?\s*lanc/i
+
+  const transacoes: TransacaoExtrato[] = []
+  let dataAtual: Date | null = null
+  let saldoAnterior: number | null = null
+  let bufferDescricao: string[] = []
+
+  for (const linhaBruta of textoOriginal.split(/\r?\n/)) {
+    let linha = linhaBruta.trim()
+    if (!linha) continue
+
+    const comData = RE_LINHA_COM_DATA.exec(linha)
+    if (comData) {
+      dataAtual = parseDataBR(comData[1])
+      linha = comData[2].trim()
+      if (!linha) continue
+    }
+
+    if (RE_IGNORAR.test(linha)) {
+      bufferDescricao = []
+      continue
+    }
+
+    if (RE_MARCADOR_SALDO.test(linha)) {
+      const m = RE_SALDO_NO_FIM.exec(linha)
+      if (m) saldoAnterior = parseValorBR(m[1])
+      bufferDescricao = []
+      continue
+    }
+
+    const m = RE_VALOR_E_SALDO_NO_FIM.exec(linha)
+    if (!m) {
+      bufferDescricao.push(linha)
+      continue
+    }
+
+    const [, descRestante, valorStr, saldoStr] = m
+    const valor = parseValorBR(valorStr)
+    const saldo = parseValorBR(saldoStr)
+
+    const descricaoLimpa = descRestante
+      .replace(/\s+\d{2}\/\d{2}\s+\S+$/, '') // remove " dd/mm docto" no final
+      .replace(/\s+\d{4,}$/, '') // remove docto solto no final
+      .trim()
+
+    const descricao = limparDescricao([...bufferDescricao, descricaoLimpa].filter(Boolean).join(' '))
+    bufferDescricao = []
+
+    if (!descricao || !dataAtual) continue
+    if (saldoAnterior === null) saldoAnterior = saldo - valor
+
+    transacoes.push({
+      data: dataAtual,
+      descricao,
+      valor,
+      tipo: saldo >= saldoAnterior ? 'ENTRADA' : 'SAIDA',
+    })
+    saldoAnterior = saldo
+  }
+
+  return transacoes
+}
+
 function detectarNomeBanco(textoOriginal: string): string | null {
   const t = textoOriginal.toLowerCase()
   const bancos: [string, string][] = [
@@ -129,6 +205,7 @@ export function parsearExtratoPdf(textoOriginal: string): ExtratoParseado {
     { transacoes: extrairPadraoSinalAntesDeRS(textoFlat), generico: nomeBanco === null },
     { transacoes: extrairPadraoSufixoDC(textoFlat), generico: true },
     { transacoes: extrairPadraoSinalNoNumero(textoFlat), generico: true },
+    { transacoes: extrairPadraoSaldoCorrido(textoOriginal), generico: true },
   ]
 
   let melhor = estrategias[0]
