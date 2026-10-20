@@ -1,5 +1,6 @@
 export type TemaFundo = 'dark' | 'light'
 export type CorSistema = 'indigo' | 'blue' | 'emerald' | 'red' | 'violet' | 'orange' | 'pink' | 'teal'
+export type EstiloIcone = 'emoji' | 'icone'
 
 export const CORES_SISTEMA: { id: CorSistema; label: string; hex: string }[] = [
   { id: 'indigo', label: 'Índigo', hex: '#4f46e5' },
@@ -17,9 +18,10 @@ export const TEMA_STORAGE_KEY = 'tl-finc-aparencia'
 export interface Aparencia {
   tema: TemaFundo
   cor: CorSistema
+  estiloIcone: EstiloIcone
 }
 
-export const APARENCIA_PADRAO: Aparencia = { tema: 'dark', cor: 'indigo' }
+export const APARENCIA_PADRAO: Aparencia = { tema: 'dark', cor: 'indigo', estiloIcone: 'emoji' }
 
 /** Cor de fundo do header (--color-surface) em cada tema — usada na barra de título do app instalado (PWA). */
 const COR_SURFACE_POR_TEMA: Record<TemaFundo, string> = {
@@ -36,6 +38,7 @@ export function lerAparenciaSalva(): Aparencia {
     return {
       tema: parsed.tema === 'light' ? 'light' : 'dark',
       cor: CORES_SISTEMA.some(c => c.id === parsed.cor) ? parsed.cor : 'indigo',
+      estiloIcone: parsed.estiloIcone === 'icone' ? 'icone' : 'emoji',
     }
   } catch {
     return APARENCIA_PADRAO

@@ -4,17 +4,19 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { toast } from 'sonner'
-import { X, User, Palette, Sun, Moon, Check, Settings2, Landmark, TrendingUp, Loader2 } from 'lucide-react'
+import { X, User, Palette, Sun, Moon, Check, Settings2, Landmark, TrendingUp, Loader2, Smile } from 'lucide-react'
 import { atualizarUsuario, getConfiguracaoSistema, toggleControleBancos, toggleInvestimentoAtivo } from '@/app/actions'
-import { CORES_SISTEMA, salvarAparencia, lerAparenciaSalva, type TemaFundo, type CorSistema } from '@/lib/theme'
+import { CORES_SISTEMA, salvarAparencia, lerAparenciaSalva, type TemaFundo, type CorSistema, type EstiloIcone } from '@/lib/theme'
 import type { Usuario } from '@/types'
 
 interface Props {
   usuario: Usuario
   onClose: () => void
+  estiloIcone: EstiloIcone
+  onEstiloIconeChange: (estilo: EstiloIcone) => void
 }
 
-export default function ModalConfiguracoes({ usuario, onClose }: Props) {
+export default function ModalConfiguracoes({ usuario, onClose, estiloIcone, onEstiloIconeChange }: Props) {
   const [aba, setAba] = useState<'usuario' | 'aplicativo' | 'sistema'>('usuario')
 
   return (
@@ -34,7 +36,13 @@ export default function ModalConfiguracoes({ usuario, onClose }: Props) {
         </div>
 
         <div className="p-5">
-          {aba === 'usuario' ? <AbaUsuario usuario={usuario} onClose={onClose} /> : aba === 'aplicativo' ? <AbaAplicativo /> : <AbaSistema />}
+          {aba === 'usuario' ? (
+            <AbaUsuario usuario={usuario} onClose={onClose} />
+          ) : aba === 'aplicativo' ? (
+            <AbaAplicativo estiloIcone={estiloIcone} onEstiloIconeChange={onEstiloIconeChange} />
+          ) : (
+            <AbaSistema />
+          )}
         </div>
       </div>
     </div>
@@ -150,7 +158,7 @@ function AbaUsuario({ usuario, onClose }: { usuario: Usuario; onClose: () => voi
   )
 }
 
-function AbaAplicativo() {
+function AbaAplicativo({ estiloIcone, onEstiloIconeChange }: { estiloIcone: EstiloIcone; onEstiloIconeChange: (estilo: EstiloIcone) => void }) {
   const [aparencia, setAparencia] = useState(lerAparenciaSalva)
 
   function mudarTema(tema: TemaFundo) {
@@ -163,6 +171,13 @@ function AbaAplicativo() {
     const nova = { ...aparencia, cor }
     setAparencia(nova)
     salvarAparencia(nova)
+  }
+
+  function mudarEstiloIcone(estilo: EstiloIcone) {
+    const nova = { ...aparencia, estiloIcone: estilo }
+    setAparencia(nova)
+    salvarAparencia(nova)
+    onEstiloIconeChange(estilo)
   }
 
   return (
@@ -211,6 +226,28 @@ function AbaAplicativo() {
               <span className="text-[11px] text-gray-400 group-hover:text-foreground transition-colors">{c.label}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Ícones do menu</p>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => mudarEstiloIcone('emoji')}
+            className={`flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium border transition-colors ${
+              estiloIcone === 'emoji' ? 'border-primary-hover bg-primary/10 text-primary-text' : 'border-border text-gray-400 hover:bg-surface-highlight'
+            }`}
+          >
+            <Smile size={16} /> Emoji
+          </button>
+          <button
+            onClick={() => mudarEstiloIcone('icone')}
+            className={`flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium border transition-colors ${
+              estiloIcone === 'icone' ? 'border-primary-hover bg-primary/10 text-primary-text' : 'border-border text-gray-400 hover:bg-surface-highlight'
+            }`}
+          >
+            <Landmark size={16} /> Ícone
+          </button>
         </div>
       </div>
 

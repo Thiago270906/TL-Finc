@@ -1,23 +1,24 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import Topbar from '@/components/Topbar'
 import ModalConfiguracoes from '@/components/ModalConfiguracoes'
 import { signOut } from 'next-auth/react'
-import { Menu, Settings, LogOut } from 'lucide-react'
+import { Menu, Settings, LogOut, BarChart3, ArrowUpCircle, ArrowDownCircle, FolderTree, Landmark, TrendingUp, type LucideIcon } from 'lucide-react'
 import Link from 'next/link'
+import { lerAparenciaSalva, type EstiloIcone } from '@/lib/theme'
 import type { Usuario } from '@/types'
 
 const ITENS_FINANCEIRO = [
-  { href: '/financeiro/balancete', icon: '📊', label: 'Balancete' },
-  { href: '/financeiro/contas-a-pagar', icon: '📤', label: 'Contas a Pagar' },
-  { href: '/financeiro/contas-a-receber', icon: '📥', label: 'Contas a Receber' },
-  { href: '/financeiro/plano-contas', icon: '🗂️', label: 'Plano de Contas' },
+  { href: '/financeiro/balancete', icon: '📊', Icone: BarChart3, label: 'Balancete' },
+  { href: '/financeiro/contas-a-pagar', icon: '📤', Icone: ArrowUpCircle, label: 'Contas a Pagar' },
+  { href: '/financeiro/contas-a-receber', icon: '📥', Icone: ArrowDownCircle, label: 'Contas a Receber' },
+  { href: '/financeiro/plano-contas', icon: '🗂️', Icone: FolderTree, label: 'Plano de Contas' },
 ] as const
 
-const ITEM_BANCOS = { href: '/financeiro/bancos', icon: '🏦', label: 'Bancos' } as const
-const ITEM_INVESTIMENTOS = { href: '/financeiro/investimentos', icon: '📈', label: 'Investimentos' } as const
+const ITEM_BANCOS = { href: '/financeiro/bancos', icon: '🏦', Icone: Landmark, label: 'Bancos' } as const
+const ITEM_INVESTIMENTOS = { href: '/financeiro/investimentos', icon: '📈', Icone: TrendingUp, label: 'Investimentos' } as const
 
 interface AuthenticatedLayoutProps {
   children: React.ReactNode
@@ -30,6 +31,16 @@ export default function AuthenticatedLayout({ children, usuario, controleBancosA
   const pathname = usePathname()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [showConfiguracoes, setShowConfiguracoes] = useState(false)
+  // Começa com o padrão (igual ao SSR) e só lê o valor salvo após montar no cliente,
+  // para não divergir da marcação renderizada no servidor e causar erro de hidratação.
+  const [estiloIcone, setEstiloIcone] = useState<EstiloIcone>('emoji')
+  useEffect(() => {
+    // Sincroniza com o valor salvo no localStorage só depois de montar — ler no
+    // initializer do useState divergiria do HTML renderizado no servidor (sem acesso
+    // a localStorage) e causaria erro de hidratação.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEstiloIcone(lerAparenciaSalva().estiloIcone)
+  }, [])
 
   if (pathname?.startsWith('/login')) {
       return <main className="min-h-screen bg-gray-100 flex flex-col justify-center">{children}</main>
@@ -80,6 +91,8 @@ export default function AuthenticatedLayout({ children, usuario, controleBancosA
                           key={item.href}
                           href={item.href}
                           icon={item.icon}
+                          Icone={item.Icone}
+                          estiloIcone={estiloIcone}
                           label={item.label}
                           isOpen={isSidebarOpen}
                           active={pathname.startsWith(item.href)}
@@ -107,7 +120,12 @@ export default function AuthenticatedLayout({ children, usuario, controleBancosA
       </div>
 
       {showConfiguracoes && (
-        <ModalConfiguracoes usuario={usuario} onClose={() => setShowConfiguracoes(false)} />
+        <ModalConfiguracoes
+          usuario={usuario}
+          onClose={() => setShowConfiguracoes(false)}
+          estiloIcone={estiloIcone}
+          onEstiloIconeChange={setEstiloIcone}
+        />
       )}
     </div>
   )
@@ -116,16 +134,18 @@ export default function AuthenticatedLayout({ children, usuario, controleBancosA
 interface SidebarLinkProps {
     href: string
     icon: string
+    Icone: LucideIcon
+    estiloIcone: EstiloIcone
     label: string
     isOpen: boolean
     active: boolean
     onNavigate?: () => void
 }
 
-function SidebarLink({ href, icon, label, isOpen, active, onNavigate }: SidebarLinkProps) {
+function SidebarLink({ href, icon, Icone, estiloIcone, label, isOpen, active, onNavigate }: SidebarLinkProps) {
     return (
         <Link href={href} onClick={onNavigate} className={`group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${!isOpen && 'justify-center'} ${active ? 'bg-primary-hover/10 text-primary-text border border-primary-hover/20 shadow-sm' : 'text-gray-400 border border-transparent hover:bg-surface-highlight hover:text-foreground'}`} title={!isOpen ? label : ''}>
-            <span className="text-lg">{icon}</span>
+            {estiloIcone === 'icone' ? <Icone size={18} className="flex-shrink-0" /> : <span className="text-lg">{icon}</span>}
             <span className={`ml-3 transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>{label}</span>
         </Link>
     )
