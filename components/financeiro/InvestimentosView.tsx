@@ -147,18 +147,66 @@ export default function InvestimentosView({ investimentos: inicial, bancos }: Pr
           Nenhum movimento encontrado.
         </div>
       ) : (
-        <div className="border border-border rounded-xl overflow-hidden">
+        <>
+          {/* Celular: lista de cartões — a tabela com 7 colunas não cabe numa tela pequena */}
+          <div className="sm:hidden space-y-3">
+            {listaFiltrada.map(i => (
+              <div key={i.id} className="border border-border rounded-xl p-4 bg-surface space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${i.tipo === 'APORTE' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {i.tipo === 'APORTE' ? <ArrowDownCircle size={14} /> : <ArrowUpCircle size={14} />}
+                    {i.tipo === 'APORTE' ? 'Aporte' : 'Resgate'}
+                  </span>
+                  <span className="text-xs text-gray-500">{formatarData(i.dt_movimento)}</span>
+                </div>
+
+                <div>
+                  <p className="text-sm text-foreground break-words">{i.descricao}</p>
+                  {i.numero_documento && <p className="text-xs text-gray-500 mt-0.5">{i.numero_documento}</p>}
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-gray-500">{i.banco.nome}</span>
+                  <span className={`text-base font-semibold whitespace-nowrap ${i.tipo === 'RESGATE' ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {i.tipo === 'RESGATE' ? '-' : '+'}{formatarMoeda(i.valor)}
+                  </span>
+                </div>
+
+                <p className="text-xs text-gray-500">
+                  Saldo do banco: {formatarMoeda(i.saldo_banco_anterior)} → {formatarMoeda(i.saldo_banco_posterior)}
+                </p>
+
+                <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
+                  <button
+                    onClick={() => { setEditando(i); setShowModal(true) }}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-foreground hover:bg-surface-highlight transition-colors"
+                    title="Editar"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <BotaoDeletar
+                    onConfirm={() => handleExcluir(i.id)}
+                    titulo="Excluir movimento?"
+                    descricao="Isso estorna o valor no saldo do banco. Só é possível excluir um aporte se não deixar resgates órfãos."
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Telas maiores: tabela completa */}
+          <div className="hidden sm:block border border-border rounded-xl overflow-hidden">
           <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] overscroll-x-contain">
-            <table className="min-w-[760px] w-full text-sm">
+            <table className="table-fixed min-w-[760px] w-full text-sm">
               <thead className="bg-background text-gray-400 text-xs uppercase">
                 <tr>
-                  <th className="text-left px-3 py-2">Data</th>
-                  <th className="text-left px-3 py-2">Tipo</th>
+                  <th className="w-20 text-left px-3 py-2">Data</th>
+                  <th className="w-24 text-left px-3 py-2">Tipo</th>
                   <th className="text-left px-3 py-2">Descrição</th>
-                  <th className="text-left px-3 py-2">Banco</th>
-                  <th className="text-right px-3 py-2">Valor</th>
-                  <th className="text-right px-3 py-2">Saldo do banco</th>
-                  <th className="text-right px-3 py-2">Ações</th>
+                  <th className="w-28 text-left px-3 py-2">Banco</th>
+                  <th className="w-28 text-right px-3 py-2">Valor</th>
+                  <th className="w-44 text-right px-3 py-2">Saldo do banco</th>
+                  <th className="w-20 text-right px-3 py-2">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -171,15 +219,15 @@ export default function InvestimentosView({ investimentos: inicial, bancos }: Pr
                         {i.tipo === 'APORTE' ? 'Aporte' : 'Resgate'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-foreground max-w-[240px]">
-                      <span className="truncate" title={i.descricao}>{i.descricao}</span>
-                      {i.numero_documento && <span className="block text-xs text-gray-500">{i.numero_documento}</span>}
+                    <td className="px-3 py-2 text-foreground overflow-hidden">
+                      <span className="block truncate" title={i.descricao}>{i.descricao}</span>
+                      {i.numero_documento && <span className="block truncate text-xs text-gray-500" title={i.numero_documento}>{i.numero_documento}</span>}
                     </td>
-                    <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{i.banco.nome}</td>
+                    <td className="px-3 py-2 text-gray-400 truncate">{i.banco.nome}</td>
                     <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${i.tipo === 'RESGATE' ? 'text-red-400' : 'text-emerald-400'}`}>
                       {i.tipo === 'RESGATE' ? '-' : '+'}{formatarMoeda(i.valor)}
                     </td>
-                    <td className="px-3 py-2 text-right text-gray-400 whitespace-nowrap">
+                    <td className="px-3 py-2 text-right text-gray-400 whitespace-nowrap truncate">
                       {formatarMoeda(i.saldo_banco_anterior)} → {formatarMoeda(i.saldo_banco_posterior)}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -203,7 +251,8 @@ export default function InvestimentosView({ investimentos: inicial, bancos }: Pr
               </tbody>
             </table>
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {showModal && (
