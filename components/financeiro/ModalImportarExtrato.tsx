@@ -194,14 +194,26 @@ export default function ModalImportarExtrato({ bancoId, bancoNome, planoContas, 
                   <tbody className="divide-y divide-border">
                     {linhas.map(l => (
                       <tr key={l.chave} className={l.possivelDuplicata ? 'bg-yellow-500/5' : undefined}>
-                        <td className="px-3 py-2 text-gray-400 whitespace-nowrap align-top">{formatarDataCurta(l.data)}</td>
-                        <td className="px-3 py-2 align-top max-w-[220px]">
+                        <td className="px-3 py-2 align-top">
+                          <input
+                            type="date"
+                            value={l.data}
+                            onChange={e => atualizarLinha(l.chave, { data: e.target.value })}
+                            className="bg-background border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary-hover"
+                          />
+                        </td>
+                        <td className="px-3 py-2 align-top min-w-[220px]">
                           <div className="flex items-start gap-1.5">
                             {l.tipoMovimento === 'ENTRADA'
-                              ? <ArrowUpCircle size={13} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-                              : <ArrowDownCircle size={13} className="text-red-400 flex-shrink-0 mt-0.5" />}
-                            <div className="min-w-0">
-                              <p className="text-foreground truncate" title={l.descricao}>{l.beneficiario ?? l.descricao}</p>
+                              ? <ArrowUpCircle size={13} className="text-emerald-400 flex-shrink-0 mt-1.5" />
+                              : <ArrowDownCircle size={13} className="text-red-400 flex-shrink-0 mt-1.5" />}
+                            <div className="min-w-0 flex-1">
+                              <input
+                                type="text"
+                                value={l.descricao}
+                                onChange={e => atualizarLinha(l.chave, { descricao: e.target.value })}
+                                className="w-full bg-background border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary-hover"
+                              />
                               {l.possivelDuplicata && (
                                 <p className="text-[11px] text-yellow-400 mt-0.5">Parece já ter sido importada</p>
                               )}
