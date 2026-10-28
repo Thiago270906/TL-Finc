@@ -173,8 +173,108 @@ function extrairPadraoSaldoCorrido(textoOriginal: string): TransacaoExtrato[] {
   return transacoes
 }
 
+// --- Padrão E: Nubank — ex: "01 OUT 2026 Total de entradas + 1.470,00" seguido de
+// "Transferência recebida pelo Pix FULANO ... 1.470,00". A data (dia + mês abreviado
+// em maiúsculas + ano) só aparece na primeira linha de cada dia, e cada bloco de
+// movimentações começa com um cabeçalho de seção "Total de entradas"/"Total de
+// saídas" que define o tipo (entrada/saída) de todas as linhas seguintes até o
+// próximo cabeçalho — a própria linha da transação não traz sinal nem letra D/C.
+// A descrição pode quebrar em várias linhas, e o texto de rodapé/cabeçalho que se
+// repete a cada página (SAC, nome do titular, CPF, período) entra no meio do fluxo
+// de texto extraído do PDF e precisa ser ignorado.
+function extrairPadraoNubank(textoOriginal: string): TransacaoExtrato[] {
+  const MESES_PT: Record<string, number> = {
+    jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5,
+    jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11,
+  }
+  const RE_LINHA_DATA = /^(\d{1,2})\s+([A-ZÇÃÁÀÂÉÊÍÓÔÕÚ]{3})\s+(\d{4})\s*(.*)$/i
+  const RE_TOTAL_SECAO = new RegExp(`^total de (entradas|sa[ií]das)\\s*([+-])\\s*${RE_VALOR.source}\\s*$`, 'i')
+  const RE_VALOR_NO_FIM = new RegExp(`(${RE_VALOR.source})\\s*$`)
+  const RE_INICIO_RODAPE = /^tem alguma d[uú]vida/i
+  const RE_FIM_RODAPE = /de \d{4}.*valores em r\$/i
+
+  const idxInicio = textoOriginal.split(/\r?\n/).findIndex(l => /^movimenta[cç][oõ]es/i.test(l.trim()))
+  if (idxInicio === -1) return []
+
+  const transacoes: TransacaoExtrato[] = []
+  let dataAtual: Date | null = null
+  let tipoAtual: TransacaoExtrato['tipo'] | null = null
+  let bufferDescricao: string[] = []
+  let dentroRodape = false
+
+  const linhas = textoOriginal.split(/\r?\n/).slice(idxInicio + 1)
+  for (const linhaBruta of linhas) {
+    const linhaOriginal = linhaBruta.trim()
+    if (!linhaOriginal) continue
+
+    if (RE_INICIO_RODAPE.test(linhaOriginal)) {
+      dentroRodape = true
+      bufferDescricao = []
+      continue
+    }
+    if (dentroRodape) {
+      if (RE_FIM_RODAPE.test(linhaOriginal)) dentroRodape = false
+      continue
+    }
+
+    let linha = linhaOriginal
+    const comData = RE_LINHA_DATA.exec(linha)
+    if (comData) {
+      const mes = MESES_PT[comData[2].toLowerCase()]
+      if (mes !== undefined) {
+        dataAtual = new Date(Number(comData[3]), mes, Number(comData[1]))
+        bufferDescricao = []
+        linha = comData[4].trim()
+        if (!linha) continue
+      }
+    }
+
+    if (RE_TOTAL_SECAO.test(linha)) {
+      tipoAtual = /entrada/i.test(linha) ? 'ENTRADA' : 'SAIDA'
+      bufferDescricao = []
+      continue
+    }
+
+    const valorMatch = RE_VALOR_NO_FIM.exec(linha)
+    if (!valorMatch) {
+      bufferDescricao.push(linha)
+      continue
+    }
+
+    const descRestante = linha.slice(0, valorMatch.index).trim()
+    const descricao = limparDescricao([...bufferDescricao, descRestante].filter(Boolean).join(' '))
+    bufferDescricao = []
+
+    if (!descricao || !dataAtual || !tipoAtual) continue
+
+    transacoes.push({
+      data: dataAtual,
+      descricao,
+      valor: parseValorBR(valorMatch[1]),
+      tipo: tipoAtual,
+    })
+  }
+
+  return transacoes
+}
+
 function detectarNomeBanco(textoOriginal: string): string | null {
   const t = textoOriginal.toLowerCase()
+
+  // Padrões fortes: só aparecem quando o extrato é realmente desse banco (razão
+  // social/domínio institucional do rodapé) — evitam falso positivo quando o nome
+  // de outro banco aparece apenas como contraparte de uma transferência Pix (ex:
+  // extrato do Nubank com um Pix recebido via "BCO BRADESCO S.A." seria detectado
+  // como Bradesco se usássemos só a lista de substrings fracos abaixo).
+  const bancosFortes: [string, string][] = [
+    ['nu pagamentos s.a', 'Nubank'],
+    ['nu financeira s.a', 'Nubank'],
+    ['nubank.com.br', 'Nubank'],
+  ]
+  for (const [chave, nome] of bancosFortes) {
+    if (t.includes(chave)) return nome
+  }
+
   const bancos: [string, string][] = [
     ['sicredi', 'Sicredi'],
     ['sicoob', 'Sicoob'],
@@ -206,6 +306,7 @@ export function parsearExtratoPdf(textoOriginal: string): ExtratoParseado {
     { transacoes: extrairPadraoSufixoDC(textoFlat), generico: true },
     { transacoes: extrairPadraoSinalNoNumero(textoFlat), generico: true },
     { transacoes: extrairPadraoSaldoCorrido(textoOriginal), generico: true },
+    { transacoes: extrairPadraoNubank(textoOriginal), generico: true },
   ]
 
   let melhor = estrategias[0]
